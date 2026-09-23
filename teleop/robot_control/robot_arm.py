@@ -1,3 +1,5 @@
+import datetime
+
 import numpy as np
 import threading
 import time
@@ -1786,6 +1788,17 @@ class R1_A5_ArmController:
 
         # Head and available waist joints gradually return to zero at startup.
         self.ctrl_head_and_waist_go_home()
+
+        # test_weights = [0, 1, 1, 2, 5, 50, 100]  # repeat 1 to check repeatability
+        # for w in test_weights:
+        #     logger_mp.info(f"--- holding mode_pr = {w} ---")
+        #     self._set_arm_sdk_weight(w / 100.0 if w else 0.0)
+        #     # actually just set it directly to avoid the *100 rounding:
+        #     self.msg.mode_pr = w
+        #     for _ in range(500):  # ~2s at 250Hz, held steady, no ramping
+        #         self.msg.crc = self.crc.Crc(self.msg)
+        #         self.lowcmd_publisher.Write(self.msg)
+        #         time.sleep(self.control_dt)
 
         # initialize publish thread
         self.publish_thread = threading.Thread(target=self._ctrl_motor_state)
