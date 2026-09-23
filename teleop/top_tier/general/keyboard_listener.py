@@ -89,6 +89,9 @@ def key_to_str(key: _KeyType) -> str:
 
 
 class _KeyboardListener(Singleton):
+    """
+    Central class for tracking keyboard events and using callbacks
+    """
 
     def __init__(self):
         super().__init__()
@@ -99,21 +102,53 @@ class _KeyboardListener(Singleton):
         listener.start()
 
     @staticmethod
-    def _on_event(key: _KeyTypeInternal, callback_funcs: dict[str, list[Callable[[], None]]]):
+    def _on_event(key: _KeyTypeInternal, callback_funcs: dict[str, list[Callable[[], None]]]) -> None:
+        """
+        Called when a keyboard event is triggered
+
+        Args:
+            key: which key triggered the event
+            callback_funcs: a mapping of key strings to a list of functions to call when the event is triggered by
+                that key
+        """
         key_str = key_to_str(key)
         if key_str in callback_funcs:
             for callback in callback_funcs[key_str]:
                 callback()
 
-    def _on_press(self, key: _KeyTypeInternal):
+    def _on_press(self, key: _KeyTypeInternal) -> None:
+        """
+        Callback function for when a key is pressed. Triggers all given callbacks for that key, and also notes that
+        the key is currently pressed.
+
+        Args:
+            key: the key that was pressed
+        """
         self._on_event(key, self._key_press_callbacks)
         self._pressed_keys.add(key_to_str(key))
 
-    def _on_release(self, key: _KeyTypeInternal):
+    def _on_release(self, key: _KeyTypeInternal) -> None:
+        """
+        Callback function for when a key is released. Triggers all given callbacks for that key, and also notes that
+        the key is no longer pressed.
+
+        Args:
+            key: the key that was released
+        """
         self._on_event(key, self._key_release_callbacks)
         self._pressed_keys.remove(key_to_str(key))
 
-    def add_listener(self, key: _KeyType, callback: Callable[[], None], on_press: bool = True):
+    def add_listener(self, key: _KeyType, callback: Callable[[], None], on_press: bool = True) -> None:
+        """
+        Add a callback function to be called when the given key is pressed
+
+        Keep the reference to the callback if you intend to remove it later
+
+        Args:
+            key: the key which will trigger this callback
+            callback: the function to call when the event is triggered by this key
+            on_press: if True, press events will trigger the callback. Else, release events will trigger the callback
+        """
         callback_funcs = self._key_press_callbacks if on_press else self._key_release_callbacks
         key_str = key_to_str(key)
         if key_str not in callback_funcs:
@@ -121,6 +156,19 @@ class _KeyboardListener(Singleton):
         callback_funcs[key_str].append(callback)
 
     def remove_listener(self, key: _KeyType, callback: Callable[[], None], on_press: bool = True) -> bool:
+        """
+        Remove a callback function so it no longer gets called when the event triggers
+
+        Should be the same instance of the callback that was added
+
+        Args:
+            key: the key to remove this callback from
+            callback: the callback function to remove
+            on_press: if True, removes this callback from press events. Else, removes it from release events
+
+        Returns:
+            a bool, True if the callback was successfully removed, False if it never existed (for that key/event type)
+        """
         callback_funcs = self._key_press_callbacks if on_press else self._key_release_callbacks
         key_str = key_to_str(key)
         if key_str in callback_funcs and callback in callback_funcs[key_str]:
@@ -129,6 +177,15 @@ class _KeyboardListener(Singleton):
         return False
 
     def is_key_pressed(self, key: _KeyType) -> bool:
+        """
+        Find out if a certain key is currently pressed
+
+        Args:
+            key: the key to check the status of
+
+        Returns:
+            True if the key is currently being pressed, False otherwise
+        """
         return key_to_str(key) in self._pressed_keys
 
 
