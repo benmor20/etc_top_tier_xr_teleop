@@ -3,6 +3,9 @@ import argparse
 from multiprocessing import Value, Array, Lock
 import threading
 import logging_mp
+
+from top_tier.keyboard_listener import KeyboardListener
+
 logging_mp.basicConfig(level=logging_mp.INFO)
 logger_mp = logging_mp.getLogger(__name__)
 
@@ -282,6 +285,10 @@ if __name__ == '__main__':
         head_img = None
         left_wrist_img = None
         right_wrist_img = None
+
+        def print_state():
+            print(arm_ctrl.get_current_dual_arm_q())
+        KeyboardListener.add_listener("l", print_state)
 
         # main loop. robot start to follow VR user's motion
         while not STOP:
