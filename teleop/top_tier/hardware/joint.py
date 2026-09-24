@@ -45,6 +45,34 @@ class JointType(IntEnum):
     RightAnklePitch = auto()
     RightAnkleRoll = auto()
 
+    @property
+    def is_upper_body(self) -> bool:
+        """
+        Returns:
+            True if this joint can be controlled by rt/arm_sdk, False otherwise
+        """
+        return self in (
+            JointType.HeadPitch,
+			JointType.HeadYaw,
+			JointType.LeftShoulderPitch,
+			JointType.LeftShoulderRoll,
+			JointType.LeftShoulderYaw,
+			JointType.LeftElbow,
+			JointType.LeftWristRoll,
+			JointType.LeftWristPitch,
+			JointType.LeftWristYaw,
+			JointType.RightShoulderPitch,
+			JointType.RightShoulderRoll,
+			JointType.RightShoulderYaw,
+			JointType.RightElbow,
+			JointType.RightWristRoll,
+			JointType.RightWristPitch,
+			JointType.RightWristYaw,
+			JointType.WaistYaw,
+			JointType.WaistRoll,
+			JointType.WaistPitch
+        )
+
 
 class Joint:
     """
