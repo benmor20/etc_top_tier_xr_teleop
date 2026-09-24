@@ -2,7 +2,9 @@ import sys
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from unitree_sdk2py.r1.loco.r1_loco_client import LocoClient
 
-ChannelFactoryInitialize(0, "enp0s31f6")
+from top_tier.general.constants import NETWORK_INTERFACE
+
+ChannelFactoryInitialize(0, NETWORK_INTERFACE)
 
 c = LocoClient()
 c.SetTimeout(1.0)

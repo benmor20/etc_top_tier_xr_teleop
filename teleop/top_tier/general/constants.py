@@ -1,0 +1,3 @@
+
+
+NETWORK_INTERFACE = "enp0s31f6"

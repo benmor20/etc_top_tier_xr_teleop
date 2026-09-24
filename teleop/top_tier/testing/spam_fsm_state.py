@@ -6,9 +6,9 @@ from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from unitree_sdk2py.r1.loco.r1_loco_client import LocoClient as R1LocoClient
 from unitree_sdk2py.g1.loco.g1_loco_client import LocoClient as G1LocoClient
 
+from top_tier.general.constants import NETWORK_INTERFACE
 
 INTERVAL = 0.05
-NETWORK_INTERFACE = "enp0s31f6"
 
 
 def force_state(client, stop_event, log, state: int):
