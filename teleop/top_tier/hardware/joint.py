@@ -1,5 +1,7 @@
 from enum import IntEnum, auto
-from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_
+from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_, LowCmd_
+
+from top_tier.general.exceptions import JointOutOfBoundsException
 
 
 class JointType(IntEnum):
@@ -176,6 +178,31 @@ class Joint:
         """
         return self._ddq
 
+    def is_pos_in_range(self, pos: float) -> bool:
+        """
+        Determine if this joint can move to the given position
+
+        Args:
+            pos: the position (radians) to test
+
+        Returns:
+            True if pos is within the range of this joint, False otherwise
+        """
+        return self.lower_limit <= pos <= self.upper_limit
+
+    def assert_pos_in_range(self, pos: float) -> None:
+        """
+        Raise an error if the given pos is not in this joint's range
+
+        Args:
+            pos: the position (radians) to test
+
+        Raises:
+            JointOutOfBoundsException: if pos is outside this joint's range
+        """
+        if not self.is_pos_in_range(pos):
+            raise JointOutOfBoundsException(f"Joint {self.joint_type} can only move between {self.lower_limit} and {self.upper_limit}, but was told to go to {pos}")
+
     def update_state(self, state: LowState_) -> None:
         """
         Update the internal state of this joint
@@ -187,3 +214,25 @@ class Joint:
         self._q = joint_state.q
         self._dq = joint_state.dq
         self._ddq = joint_state.ddq
+
+    def add_to_cmd(self, cmd: LowCmd_, target_pos: float, target_vel: float = 0., kff: float = 0.) -> None:
+        """
+        Add this joint's data to the low-level command, telling it to move to target_pos
+
+        Args:
+            cmd: the low-level command to update
+            target_pos: radians, the position this joint should move to in the command
+            target_vel: rad/s, the velocity this joint should move at
+            kff: the PID feedforward value for this joint at its current position
+
+        Raises:
+            JointOutOfBoundsException: if target_pos is outside this joint's range
+        """
+        self.assert_pos_in_range(target_pos)
+
+        cmd.motor_cmd[self.joint_id].mode = 1
+        cmd.motor_cmd[self.joint_id].kp = self.Kp
+        cmd.motor_cmd[self.joint_id].kd = self.Kd
+        cmd.motor_cmd[self.joint_id].q = target_pos
+        cmd.motor_cmd[self.joint_id].dq = target_vel
+        cmd.motor_cmd[self.joint_id].tau = kff
