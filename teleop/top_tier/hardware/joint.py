@@ -1,4 +1,5 @@
 from enum import IntEnum, auto
+from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_
 
 
 class JointType(IntEnum):
@@ -101,6 +102,7 @@ class Joint:
 
         self._q = 0.
         self._dq = 0.
+        self._ddq = 0.
 
     @property
     def joint_type(self) -> JointType:
@@ -149,3 +151,39 @@ class Joint:
             the derivative coefficient for this joint's PID controller
         """
         return self._Kd
+
+    @property
+    def pos(self) -> float:
+        """
+        Returns:
+            the last known position of this joint (radians)
+        """
+        return self._q
+
+    @property
+    def vel(self) -> float:
+        """
+        Returns:
+            the last known velocity of this joint (rad/s)
+        """
+        return self._dq
+
+    @property
+    def acc(self) -> float:
+        """
+        Returns:
+            the last known acceleration of this joint (rad/s/s)
+        """
+        return self._ddq
+
+    def update_state(self, state: LowState_) -> None:
+        """
+        Update the internal state of this joint
+
+        Args:
+            state: the result of the call to rt/lowstate
+        """
+        joint_state = state.motor_state[self.joint_id]
+        self._q = joint_state.q
+        self._dq = joint_state.dq
+        self._ddq = joint_state.ddq

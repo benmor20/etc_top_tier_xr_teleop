@@ -1,3 +1,4 @@
 
 
 NETWORK_INTERFACE = "enp0s31f6"
+CONTROL_DT = 1. / 250.

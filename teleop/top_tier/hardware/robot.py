@@ -1,4 +1,5 @@
 import time
+import sched
 from abc import ABC, abstractmethod
 from enum import Enum
 
@@ -8,10 +9,10 @@ from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_, LowCmd_
 from unitree_sdk2py.rpc.client import Client
 from unitree_sdk2py.utils.crc import CRC
 
+from teleop.top_tier.general.repeated_event import RepeatedEvent
 from teleop.top_tier.hardware.extensions import R1LocoClient, G1LocoClient
 from teleop.top_tier.hardware.joint import Joint, JointType
-from teleop.top_tier.general.constants import NETWORK_INTERFACE
-
+from teleop.top_tier.general.constants import NETWORK_INTERFACE, CONTROL_DT
 
 _G1_JOINTS = {
     # Left arm
@@ -115,6 +116,16 @@ class RobotType(Enum):
         return _R1_JOINTS
 
 
+class RobotFSMState(Enum):
+    Unknown = -1
+    ZeroTorque = 0
+    Damping = 1
+    LockedStand = 4
+    G1Walking = 801
+    R1Walking = 811
+    R1Balancing = 816
+
+
 class Robot:
     """
     Base class for all types of robots
@@ -133,16 +144,25 @@ class Robot:
         self._loco_client.SetTimeout(1.0)
 
         self._joints = self._robot_type.get_joint_map()
+        self._robot_fsm_state = RobotFSMState.ZeroTorque
+        self._doing_low_level_arms = False
+
         self._state_sub = ChannelSubscriber(
             "rt/lowstate",
             LowState_,
         )
+        self._last_lowstate_call_time = -1.
         self._arm_pub = ChannelPublisher(
             "rt/arm_sdk",
             LowCmd_,
         )
         self._arm_cmd = LowCmd_()
         self._crc = CRC()
+
+        self._state_update_event = RepeatedEvent(CONTROL_DT, self._update_internal_state)
+
+
+    # PROPERTIES/GETTERS --------------------------------------------------------------------------
 
     @property
     def robot_type(self) -> RobotType:
@@ -153,12 +173,56 @@ class Robot:
         return self._robot_type
 
     @property
+    def robot_fsm_state(self) -> RobotFSMState:
+        """
+        Returns:
+            the current FSM state the robot is in
+        """
+        return self._robot_fsm_state
+
+    @property
     def loco_client(self) -> G1LocoClient | R1LocoClient:
         """
         Returns:
             the LocoClient for this robot
         """
         return self._loco_client
+
+    @property
+    def joints(self) -> set[Joint]:
+        """
+        Returns:
+            the set of joints on this robot
+        """
+        return set(self._joints.values())
+
+    def get_joint(self, joint_type: JointType) -> Joint:
+        """
+        Get the joint corresponding to the given joint type
+
+        Args:
+            joint_type: the type of joint to get
+
+        Returns:
+            the joint of the given joint type
+
+        Raises:
+            KeyError: if the given joint type is not present on this Robot
+        """
+        return self._joints[joint_type]
+
+    def get_current_joint_positions(self) -> dict[JointType, float]:
+        """
+        Returns:
+            a mapping of each JointType on this robot and its corresponding joint position
+        """
+        joint_poses = {}
+        for joint in self.joints:
+            joint_poses[joint.joint_type] = joint.pos
+        return joint_poses
+
+
+    # INITIALIZATION ------------------------------------------------------------------------------
 
     def initialize(self) -> None:
         """
@@ -167,37 +231,96 @@ class Robot:
         self._loco_client.Init()
         self._state_sub.Init()
         self._arm_pub.Init()
+        self._state_update_event.start()
 
     def enable_low_level_arm_control(self) -> None:
         """
         Sets the relevant value so the upper body will start listening to low level control
         """
-        pass # TODO
+        # TODO
+        self._doing_low_level_arms = True
+
+
+    # SHUTDOWN ------------------------------------------------------------------------------------
+
+    def e_stop(self) -> None:
+        """
+        Stop the robot FAST
+
+        Absolutely ridiculous that this needs to be software but at least it'll exist
+        """
+        self.loco_client.SetFsmId(RobotFSMState.Damping.value)
+        self._state_update_event.stop()
+
+    def shutdown(self) -> None:
+        """
+        Shut down the robot
+        """
+        if self._doing_low_level_arms:
+            self.release_low_level_arm_control()
+        self.e_stop()
 
     def release_low_level_arm_control(self) -> None:
         """
         Slowly ramps down the relevant value so the upper body will no longer listen to low level control
         """
-        pass # TODO
+        # TODO
+        self._doing_low_level_arms = False
 
-    def get_low_level_state(self) -> LowState_:
+
+    # UPDATE CYCLE --------------------------------------------------------------------------------
+
+    def _update_internal_state(self) -> None:
+        """
+        Update all tracked internal states of this robot
+
+        This function is called on a timer every CONTROL_DT seconds.
+        To be thread-safe, nothing else should update these variables - only read them
+        """
+        state = self._get_low_level_state()
+        self._update_joint_states(state)
+        fsm_id = self._loco_client.GetFsmId()
+        self._robot_fsm_state = RobotFSMState[fsm_id] if fsm_id in RobotFSMState else RobotFSMState.Unknown
+
+    def _get_low_level_state(self) -> LowState_:
         """
         Returns:
             the current low-level robot state
         """
-        state: LowState_ | None = None
-
+        state: LowState_ | None = self._state_sub.Read()
         while state is None:
+            time.sleep(CONTROL_DT)
             state = self._state_sub.Read()
-            time.sleep(0.01)
 
+        self._last_lowstate_call_time = time.time()
         return state
 
-    def set_upper_body_position(self) -> None:
+    def _update_joint_states(self, state: LowState_) -> None:
         """
-        Set the position of the upper body
+        Update the internal information for all joints
 
         Args:
-            TODO (need some repr of pos, max allowed vel?)
+            state: the result of the call to rt/lowstate
         """
-        pass
+        for joint in self._joints.values():
+            joint.update_state(state)
+
+
+    # ACTIONS -------------------------------------------------------------------------------------
+
+    def set_upper_body_position(self, pos_to_set: dict[JointType, float], max_vel: float = 1.) -> None:
+        """
+        Set the position of joints in the upper body, moving them there with up to max_vel speed.
+
+        All given joints must be in the upper body, and all given positions must be in range for that joint.
+        TODO this func does not set a limit on acceleration
+        The speed of each joint will be determined so that they all arrive at the same time, and the fastest
+        joint is moving at max_vel.
+        This function blocks until the movement is complete - TODO: dont?
+        Any joints not in the given dict will not be moved
+
+        Args:
+            pos_to_set: a mapping of upper body joints to their target positions (radians)
+            max_vel: m/s, the maximum velocity the fastest joint may move
+        """
+        pass # TODO
