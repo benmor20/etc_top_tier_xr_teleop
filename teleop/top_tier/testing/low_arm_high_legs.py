@@ -18,7 +18,8 @@ from unitree_sdk2py.r1.loco.r1_loco_client import LocoClient as R1LocoClient
 from unitree_sdk2py.g1.loco.g1_loco_client import LocoClient as G1LocoClient
 from unitree_sdk2py.utils.crc import CRC
 
-from top_tier.general.constants import NETWORK_INTERFACE
+
+NETWORK_INTERFACE = "enp0s31f6"
 
 ARM_SDK_TOPIC = "rt/arm_sdk"
 LOWSTATE_TOPIC = "rt/lowstate"
@@ -82,7 +83,11 @@ def main():
     cmd = unitree_hg_msg_dds__LowCmd_()
     crc = CRC()
 
-    cmd.mode_pr = 100
+    if is_g1:
+        cmd.motor_cmd[29].q = 1.
+    else:
+        cmd.mode_pr = 100
+
     cmd.mode_machine = state.mode_machine
     print("Created cmd")
 

@@ -5,7 +5,8 @@ import time
 
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from unitree_sdk2py.r1.loco.r1_loco_client import LocoClient
-from top_tier.general.constants import NETWORK_INTERFACE
+
+NETWORK_INTERFACE = "enp0s31f6"
 
 
 def get_timestamp() -> str:

@@ -349,6 +349,9 @@ class Robot:
         except ValueError:
             self._robot_fsm_state = RobotFSMState.Unknown
 
+        if self._doing_low_level_arms:
+            self.set_upper_body_position(self.get_upper_body_joint_positions())
+
     def _get_low_level_state(self) -> LowState_:
         """
         Returns:

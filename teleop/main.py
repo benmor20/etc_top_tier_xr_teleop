@@ -1,13 +1,12 @@
 import os
 import sys
 import time
-
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 from top_tier.hardware.joint import JointType
-from top_tier.hardware.robot import Robot, RobotType, RobotFSMState
+from top_tier.hardware.robot import Robot, RobotType
 
 
 def main():
@@ -49,8 +48,10 @@ def main():
             JointType.WaistYaw: -2.617,
         }
     ]
-    for joint_pos in joint_poses:
-        robot.set_upper_body_position(joint_pos)
+
+    robot.loco_client.SetVelocity(0.3, 0., 0., 1.)
+    # for joint_pos in joint_poses:
+    #     robot.set_upper_body_position(joint_pos)
 
     time.sleep(5.)
     robot.shutdown(False)
