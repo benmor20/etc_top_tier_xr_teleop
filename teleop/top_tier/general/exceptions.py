@@ -6,6 +6,12 @@ class RobotException(Exception):
     """
 
 
+class UnknownRobotException(RobotException):
+    """
+    Raised if a robot-specific action is taken with an unknown robot type
+    """
+
+
 class IllegalRobotStateException(RobotException):
     """
     For doing an operation when the robot is in a state that does not support it

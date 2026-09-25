@@ -2,6 +2,7 @@ import math
 import time
 from enum import Enum
 
+import numpy as np
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber, ChannelPublisher
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_, LowCmd_
 from unitree_sdk2py.utils.crc import CRC
@@ -9,9 +10,9 @@ from unitree_sdk2py.utils.crc import CRC
 from teleop.top_tier.general.repeated_event import RepeatedEvent
 from teleop.top_tier.hardware.extensions import R1LocoClient, G1LocoClient
 from teleop.top_tier.hardware.joint import Joint, JointType
-from teleop.top_tier.general.constants import NETWORK_INTERFACE, CONTROL_DT
+from teleop.top_tier.general.constants import NETWORK_INTERFACE, CONTROL_DT, G1_ARM_SDK_WEIGHT_MOTOR_IDX
 from top_tier.general.exceptions import IllegalRobotStateException, IllegalJointCommandException, \
-    JointOutOfBoundsException
+    JointOutOfBoundsException, UnknownRobotException
 
 _G1_JOINTS = {
     # Left arm
@@ -227,6 +228,18 @@ class Robot:
             joint_poses[joint.joint_type] = joint.pos
         return joint_poses
 
+    def _get_current_arm_sdk_weight(self) -> float:
+        """
+        Returns:
+            the current arm sdk weight - 0 if entirely high-level control, 1 if entirely low-level control, or any value
+                in between if it's a blend
+        """
+        if self.robot_type == RobotType.G1:
+            return self._arm_cmd.motor_cmd[G1_ARM_SDK_WEIGHT_MOTOR_IDX].q
+        if self.robot_type == RobotType.R1:
+            return self._arm_cmd.mode_pr
+        raise UnknownRobotException(f"Do not know how to get arm sdk weight from {self.robot_type}")
+
 
     # INITIALIZATION ------------------------------------------------------------------------------
 
@@ -243,8 +256,9 @@ class Robot:
         """
         Sets the relevant value so the upper body will start listening to low level control
         """
-        # TODO
+        # can go straight to 100 if we're moving the motors to their current position
         self._doing_low_level_arms = True
+        self.set_upper_body_position(self.get_current_joint_positions())
 
 
     # SHUTDOWN ------------------------------------------------------------------------------------
@@ -266,12 +280,19 @@ class Robot:
             self.release_low_level_arm_control()
         self.e_stop()
 
-    def release_low_level_arm_control(self) -> None:
+    def release_low_level_arm_control(self, duration: float = 2.) -> None:
         """
         Slowly ramps down the relevant value so the upper body will no longer listen to low level control
+
+        Args:
+            duration: how long it should take to release the arm control (secs)
         """
-        # TODO
         self._doing_low_level_arms = False
+        steps = max(1, int(duration / CONTROL_DT))
+        for weight in np.linspace(self._get_current_arm_sdk_weight(), 0.0, num=steps + 1):
+            self._set_arm_sdk_weight(weight)
+            self._send_arm_command()
+        self._set_arm_sdk_weight(0.0)
 
 
     # UPDATE CYCLE --------------------------------------------------------------------------------
@@ -313,7 +334,22 @@ class Robot:
             joint.update_state(state)
 
 
-    # ACTIONS -------------------------------------------------------------------------------------
+    # ARM COMMANDS --------------------------------------------------------------------------------
+
+    def _set_arm_sdk_weight(self, weight: float) -> None:
+        """
+        Set the weight of low-level control to the current command
+
+        Args:
+            weight: what percentage (0-1) the robot should listen to the low-level command. 1 is entirely low-level,
+                0 is entirely high-level
+        """
+        if self.robot_type == RobotType.G1:
+            self._arm_cmd.motor_cmd[G1_ARM_SDK_WEIGHT_MOTOR_IDX].q = weight
+        elif self.robot_type == RobotType.R1:
+            self._arm_cmd.mode_pr = int(np.clip(weight, 0.0, 1.0) * 100.0)
+        else:
+            raise UnknownRobotException(f"Do not know how to set arm sdk weight on {self.robot_type}")
 
     def _send_arm_command(self, block_for_control_dt: bool = True) -> None:
         """
@@ -359,7 +395,7 @@ class Robot:
                 raise IllegalJointCommandException(f"Cannot set the position of {joint_type}")
             self.joints[joint_type].assert_pos_in_range(target_pos)
 
-        self._arm_cmd.mode_pr = 100
+        self._set_arm_sdk_weight(1.)
         for joint_idx in range(len(self._arm_cmd.motor_cmd)):
             self._arm_cmd.motor_cmd[joint_idx].mode = 0  # by default ignore all joints - will override the joints we're using
             self._arm_cmd.motor_cmd[joint_idx].dq = 0.
