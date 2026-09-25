@@ -4,6 +4,7 @@ from enum import Enum
 
 import numpy as np
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber, ChannelPublisher
+from unitree_sdk2py.idl import unitree_hg_msg_dds__LowCmd_
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_, LowCmd_
 from unitree_sdk2py.utils.crc import CRC
 
@@ -156,7 +157,7 @@ class Robot:
             "rt/arm_sdk",
             LowCmd_,
         )
-        self._arm_cmd = LowCmd_()
+        self._arm_cmd = unitree_hg_msg_dds__LowCmd_()
         self._crc = CRC()
 
         self._state_update_event = RepeatedEvent(CONTROL_DT, self._update_internal_state)
@@ -196,6 +197,7 @@ class Robot:
         """
         return self._joints
 
+    @property
     def joint_set(self) -> set[Joint]:
         """
         Returns:
@@ -228,6 +230,20 @@ class Robot:
             joint_poses[joint.joint_type] = joint.pos
         return joint_poses
 
+    def get_upper_body_joint_positions(self) -> dict[JointType, float]:
+        """
+        Returns:
+            a mapping of each upper body JointType on this robot and its corresponding joint position
+        """
+        return {jt: p for jt, p in self.get_current_joint_positions().items() if jt.is_upper_body}
+
+    def get_lower_body_joint_positions(self) -> dict[JointType, float]:
+        """
+        Returns:
+            a mapping of each lower body JointType on this robot and its corresponding joint position
+        """
+        return {jt: p for jt, p in self.get_current_joint_positions().items() if not jt.is_upper_body}
+
     def _get_current_arm_sdk_weight(self) -> float:
         """
         Returns:
@@ -258,7 +274,20 @@ class Robot:
         """
         # can go straight to 100 if we're moving the motors to their current position
         self._doing_low_level_arms = True
-        self.set_upper_body_position(self.get_current_joint_positions())
+        self.set_upper_body_position(self.get_upper_body_joint_positions())
+
+    def set_fsm_state(self, target_state: RobotFSMState) -> bool:
+        """
+        Set the robot's FSM state to the target state
+
+        Args:
+            target_state: what FSM State to transition the robot into
+
+        Returns:
+            True if the robot successfully transitioned states, False otherwise
+        """
+        code = self.loco_client.SetFsmId(target_state.value)
+        return code == 0
 
 
     # SHUTDOWN ------------------------------------------------------------------------------------
@@ -272,13 +301,19 @@ class Robot:
         self.loco_client.SetFsmId(RobotFSMState.Damping.value)
         self._state_update_event.stop()
 
-    def shutdown(self) -> None:
+    def shutdown(self, enter_damping: bool = True) -> None:
         """
         Shut down the robot
+
+        Args:
+            enter_damping: if True, will move the robot to damping mode
         """
         if self._doing_low_level_arms:
             self.release_low_level_arm_control()
-        self.e_stop()
+        if enter_damping:
+            self.e_stop()
+        else:
+            self._state_update_event.stop()
 
     def release_low_level_arm_control(self, duration: float = 2.) -> None:
         """
@@ -307,8 +342,12 @@ class Robot:
         state = self._get_low_level_state()
         self._arm_cmd.mode_machine = state.mode_machine
         self._update_joint_states(state)
-        fsm_id = self._loco_client.GetFsmId()
-        self._robot_fsm_state = RobotFSMState[fsm_id] if fsm_id in RobotFSMState else RobotFSMState.Unknown
+        fsm_id = self._loco_client.GetFsmId()[1]
+
+        try:
+            self._robot_fsm_state = RobotFSMState(fsm_id)
+        except ValueError:
+            self._robot_fsm_state = RobotFSMState.Unknown
 
     def _get_low_level_state(self) -> LowState_:
         """
@@ -365,7 +404,7 @@ class Robot:
         if block_for_control_dt:
             time.sleep(CONTROL_DT)
 
-    def set_upper_body_position(self, target_poses: dict[JointType, float], max_vel: float = 1.) -> None:
+    def set_upper_body_position(self, target_poses: dict[JointType, float], max_vel: float = 3.) -> None:
         """
         Set the position of joints in the upper body, moving them there with up to max_vel speed.
 
@@ -392,7 +431,7 @@ class Robot:
             raise IllegalRobotStateException(f"Please call enable_low_level_arm_control before controlling the arms")
         for joint_type, target_pos in target_poses.items():
             if not joint_type.is_upper_body:
-                raise IllegalJointCommandException(f"Cannot set the position of {joint_type}")
+                raise IllegalJointCommandException(f"Cannot set the position of {joint_type.name}")
             self.joints[joint_type].assert_pos_in_range(target_pos)
 
         self._set_arm_sdk_weight(1.)
