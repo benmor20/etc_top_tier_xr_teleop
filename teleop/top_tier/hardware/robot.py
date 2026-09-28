@@ -14,6 +14,8 @@ from teleop.top_tier.hardware.joint import Joint, JointType
 from teleop.top_tier.general.constants import NETWORK_INTERFACE, CONTROL_DT, G1_ARM_SDK_WEIGHT_MOTOR_IDX
 from top_tier.general.exceptions import IllegalRobotStateException, IllegalJointCommandException, \
     JointOutOfBoundsException, UnknownRobotException
+from top_tier.general.repeated_event import RepeatMode
+from top_tier.hardware import joint
 
 _G1_JOINTS = {
     # Left arm
@@ -122,7 +124,7 @@ class RobotFSMState(Enum):
     ZeroTorque = 0
     Damping = 1
     LockedStand = 4
-    G1Walking = 801
+    G1Walking = 500
     R1Walking = 811
     R1Balancing = 816
 
@@ -160,7 +162,7 @@ class Robot:
         self._arm_cmd = unitree_hg_msg_dds__LowCmd_()
         self._crc = CRC()
 
-        self._state_update_event = RepeatedEvent(CONTROL_DT, self._update_internal_state)
+        self._state_update_event = RepeatedEvent(CONTROL_DT, RepeatMode.START_TO_START, self._update_internal_state)
 
 
     # PROPERTIES/GETTERS --------------------------------------------------------------------------
@@ -204,6 +206,18 @@ class Robot:
             the set of joints on this robot
         """
         return set(self.joints.values())
+
+    def has_joint(self, joint_type: JointType) -> bool:
+        """
+        Determine if this robot has the given joint type
+
+        Args:
+            joint_type: the type of joint to check
+
+        Returns:
+            True if this robot has the given joint type, False otherwise
+        """
+        return joint_type in self.joints
 
     def get_joint(self, joint_type: JointType) -> Joint:
         """
@@ -348,9 +362,6 @@ class Robot:
             self._robot_fsm_state = RobotFSMState(fsm_id)
         except ValueError:
             self._robot_fsm_state = RobotFSMState.Unknown
-
-        if self._doing_low_level_arms:
-            self.set_upper_body_position(self.get_upper_body_joint_positions())
 
     def _get_low_level_state(self) -> LowState_:
         """

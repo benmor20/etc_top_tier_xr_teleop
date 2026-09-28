@@ -72,8 +72,6 @@ class JointType(IntEnum):
 			JointType.RightWristPitch,
 			JointType.RightWristYaw,
 			JointType.WaistYaw,
-			JointType.WaistRoll,
-			JointType.WaistPitch
         )
 
 
