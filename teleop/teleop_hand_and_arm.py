@@ -4,6 +4,8 @@ from multiprocessing import Value, Array, Lock
 import threading
 import logging_mp
 
+from top_tier.general.constants import WALKING_SPEED
+from top_tier.general.xr_controllers import XRControllers, XRControllerButton
 
 logging_mp.basicConfig(level=logging_mp.INFO)
 logger_mp = logging_mp.getLogger(__name__)
@@ -291,6 +293,7 @@ if __name__ == '__main__':
         KeyboardListener.add_listener("l", print_state)
 
         # main loop. robot start to follow VR user's motion
+        controllers = XRControllers()
         while not STOP:
             start_time = time.time()
             # get image
@@ -322,6 +325,7 @@ if __name__ == '__main__':
 
             # get xr's tele data
             tele_data = tv_wrapper.get_tele_data()
+            controllers.update(tele_data)
             if args.ee in ("dex3", "inspire_ftp", "inspire_dfx", "brainco")  and args.input_mode == "hand":
                 with left_hand_pos_array.get_lock():
                     left_hand_pos_array[:] = tele_data.left_hand_pos.flatten()
@@ -354,16 +358,16 @@ if __name__ == '__main__':
             # high level control
             if args.input_mode == "controller" and args.motion:
                 # quit teleoperate
-                if tele_data.right_ctrl_aButton:
-                    START = False
-                    STOP = True
+                # if tele_data.right_ctrl_aButton:
+                #     START = False
+                #     STOP = True
                 # command robot to enter damping mode. soft emergency stop function
                 if tele_data.left_ctrl_thumbstick and tele_data.right_ctrl_thumbstick:
                     loco_wrapper.Damp()
                 # https://github.com/unitreerobotics/xr_teleoperate/issues/135, control, limit velocity to within 0.3
-                loco_wrapper.Move(-tele_data.left_ctrl_thumbstickValue[1] * 0.3,
-                                  -tele_data.left_ctrl_thumbstickValue[0] * 0.3,
-                                  -tele_data.right_ctrl_thumbstickValue[0]* 0.3)
+                loco_wrapper.Move(-tele_data.left_ctrl_thumbstickValue[1] * WALKING_SPEED,
+                                  -tele_data.left_ctrl_thumbstickValue[0] * WALKING_SPEED,
+                                  -tele_data.right_ctrl_thumbstickValue[0]* WALKING_SPEED)
 
             # get current robot state data.
             current_lr_arm_q  = arm_ctrl.get_current_dual_arm_q()
