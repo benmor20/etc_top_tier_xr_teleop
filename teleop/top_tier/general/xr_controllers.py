@@ -3,7 +3,7 @@ from enum import auto, Enum
 
 import numpy as np
 
-from televuer import TeleData
+from televuer import TeleData, TeleVuerWrapper
 from top_tier.general.constants import XR_CONTROLLER_TRIGGER_THRESHOLD
 
 
@@ -18,14 +18,17 @@ class XRControllerButton(Enum):
     RightTrigger = auto()
     RightSqueeze = auto()
     RightJoystick = auto()
+    IsValid = auto()
 
 
 class XRControllerFloat(Enum):
     LeftTrigger = auto()
+    LeftTriggerScaled = auto()
     LeftSqueeze = auto()
     LeftJoystickX = auto()
     LeftJoystickY = auto()
     RightTrigger = auto()
+    RightTriggerScaled = auto()
     RightSqueeze = auto()
     RightJoystickX = auto()
     RightJoystickY = auto()
@@ -158,6 +161,8 @@ class XRControllerState:
             return self.right_squeeze_pressed
         if button == XRControllerButton.RightJoystick:
             return self.right_joystick_pressed
+        if button == XRControllerButton.IsValid:
+            return self.is_valid
         raise ValueError(f"Unknown XRControllerButton: {button}")
 
     def get_float(self, trigger: XRControllerFloat) -> float:
@@ -172,6 +177,8 @@ class XRControllerState:
         """
         if trigger == XRControllerFloat.LeftTrigger:
             return self.left_trigger
+        if trigger == XRControllerFloat.LeftTriggerScaled:
+            return 10. - 10. * self.left_trigger
         if trigger == XRControllerFloat.LeftSqueeze:
             return self.left_squeeze
         if trigger == XRControllerFloat.LeftJoystickX:
@@ -180,6 +187,8 @@ class XRControllerState:
             return self.left_joystick_pos[1]
         if trigger == XRControllerFloat.RightTrigger:
             return self.right_trigger
+        if trigger == XRControllerFloat.RightTriggerScaled:
+            return 10. - 10. * self.right_trigger
         if trigger == XRControllerFloat.RightSqueeze:
             return self.right_squeeze
         if trigger == XRControllerFloat.RightJoystickX:
@@ -211,10 +220,14 @@ class XRControllers:
     """
     Tracks the state of the XR Controllers, giving useful helper functions
     """
-    def __init__(self):
+    def __init__(self, tv_wrapper: TeleVuerWrapper):
         """
         Create a new XRControllers wrapper
+
+        Args:
+            tv_wrapper: the TeleVuer bridge to the XR headset
         """
+        self._tv_wrapper = tv_wrapper
         self._last_state = XRControllerState()
         self._current_state = XRControllerState()
 
@@ -278,15 +291,10 @@ class XRControllers:
         """
         return self._current_state.get_matrix(matrix)
 
-    def update(self, tele_data: TeleData) -> None:
+    def update(self) -> None:
         """
         Update the state of this controller with new teledata
-
-        Args:
-            tele_data: the data to update this controller with
         """
-        # print("Updating!")
+        tele_data = self._tv_wrapper.get_tele_data()
         self._last_state = self._current_state
         self._current_state = XRControllerState.from_tele_data(tele_data)
-        # if np.allclose(self._current_state.get_matrix(XRControllerMatrix.HeadPose), self._last_state.get_matrix(XRControllerMatrix.HeadPose)):
-        #     print(f"Similar head poses!, pose is: {self.get_matrix(XRControllerMatrix.HeadPose)}")

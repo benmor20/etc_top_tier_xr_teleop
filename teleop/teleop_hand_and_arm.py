@@ -5,7 +5,7 @@ import threading
 import logging_mp
 
 from top_tier.general.constants import WALKING_SPEED
-from top_tier.general.xr_controllers import XRControllers, XRControllerButton
+from top_tier.general.xr_controllers import XRControllers, XRControllerButton, XRControllerFloat, XRControllerMatrix
 
 logging_mp.basicConfig(level=logging_mp.INFO)
 logger_mp = logging_mp.getLogger(__name__)
@@ -142,6 +142,7 @@ if __name__ == '__main__':
                                      webrtc_url=f"https://{args.img_server_ip}:{camera_config['head_camera']['webrtc_port']}/offer",
                                      arm_reference_mode="head_yaw"
                                      )
+        controller_data = XRControllers(tv_wrapper)
         
         # motion mode (G1: Regular mode R1+X, not Running mode R2+A)
         if args.motion:
@@ -293,7 +294,6 @@ if __name__ == '__main__':
         KeyboardListener.add_listener("l", print_state)
 
         # main loop. robot start to follow VR user's motion
-        controllers = XRControllers()
         while not STOP:
             start_time = time.time()
             # get image
@@ -324,36 +324,23 @@ if __name__ == '__main__':
                         publish_reset_category(1, reset_pose_publisher)
 
             # get xr's tele data
-            tele_data = tv_wrapper.get_tele_data()
-            controllers.update(tele_data)
-            if args.ee in ("dex3", "inspire_ftp", "inspire_dfx", "brainco")  and args.input_mode == "hand":
-                with left_hand_pos_array.get_lock():
-                    left_hand_pos_array[:] = tele_data.left_hand_pos.flatten()
-                with right_hand_pos_array.get_lock():
-                    right_hand_pos_array[:] = tele_data.right_hand_pos.flatten()
-            elif args.ee == "brainco" and args.input_mode == "controller":
+            controller_data.update()
+            if args.ee == "brainco" and args.input_mode == "controller":
                 with left_gripper_trigger_in.get_lock():
-                    left_gripper_trigger_in.value = tele_data.left_ctrl_triggerValue
+                    left_gripper_trigger_in.value = controller_data.get_float(XRControllerFloat.LeftTriggerScaled)
                 with left_gripper_squeeze_in.get_lock():
-                    left_gripper_squeeze_in.value = tele_data.left_ctrl_squeezeValue
+                    left_gripper_squeeze_in.value = controller_data.get_float(XRControllerFloat.LeftSqueeze)
                 with right_gripper_trigger_in.get_lock():
-                    right_gripper_trigger_in.value = tele_data.right_ctrl_triggerValue
+                    right_gripper_trigger_in.value = controller_data.get_float(XRControllerFloat.RightTriggerScaled)
                 with right_gripper_squeeze_in.get_lock():
-                    right_gripper_squeeze_in.value = tele_data.right_ctrl_squeezeValue
+                    right_gripper_squeeze_in.value = controller_data.get_float(XRControllerFloat.RightSqueeze)
             elif args.ee in ("dex1", "dex1_internal") and args.input_mode == "controller":
                 with left_gripper_value.get_lock():
-                    left_gripper_value.value = tele_data.left_ctrl_triggerValue
+                    left_gripper_value.value = controller_data.get_float(XRControllerFloat.LeftTriggerScaled)
                 with right_gripper_value.get_lock():
-                    right_gripper_value.value = tele_data.right_ctrl_triggerValue
-            elif args.ee in ("dex1", "dex1_internal") and args.input_mode == "hand":
-                with left_gripper_value.get_lock():
-                    left_gripper_value.value = tele_data.left_hand_pinchValue
-                with right_gripper_value.get_lock():
-                    right_gripper_value.value = tele_data.right_hand_pinchValue
-            else:
-                pass
+                    right_gripper_value.value = controller_data.get_float(XRControllerFloat.RightTriggerScaled)
             with xr_motion_data_ready.get_lock():
-                xr_motion_data_ready.value = tele_data.motion_data_ready
+                xr_motion_data_ready.value = controller_data.get_button(XRControllerButton.IsValid)
             
             # high level control
             if args.input_mode == "controller" and args.motion:
@@ -362,12 +349,11 @@ if __name__ == '__main__':
                 #     START = False
                 #     STOP = True
                 # command robot to enter damping mode. soft emergency stop function
-                if tele_data.left_ctrl_thumbstick and tele_data.right_ctrl_thumbstick:
+                if controller_data.get_button(XRControllerButton.LeftJoystick) and controller_data.get_button(XRControllerButton.RightJoystick):
                     loco_wrapper.Damp()
-                # https://github.com/unitreerobotics/xr_teleoperate/issues/135, control, limit velocity to within 0.3
-                loco_wrapper.Move(-tele_data.left_ctrl_thumbstickValue[1] * WALKING_SPEED,
-                                  -tele_data.left_ctrl_thumbstickValue[0] * WALKING_SPEED,
-                                  -tele_data.right_ctrl_thumbstickValue[0]* WALKING_SPEED)
+                loco_wrapper.Move(controller_data.get_float(XRControllerFloat.LeftJoystickY) * WALKING_SPEED,
+                                  -controller_data.get_float(XRControllerFloat.LeftJoystickX) * WALKING_SPEED,
+                                  -controller_data.get_float(XRControllerFloat.RightJoystickX)* WALKING_SPEED)
 
             # get current robot state data.
             current_lr_arm_q  = arm_ctrl.get_current_dual_arm_q()
@@ -375,7 +361,12 @@ if __name__ == '__main__':
 
             # solve ik using motor data and wrist pose, then use ik results to control arms.
             time_ik_start = time.time()
-            sol_q, sol_tauff  = arm_ik.solve_ik(tele_data.left_wrist_pose, tele_data.right_wrist_pose, current_lr_arm_q, current_lr_arm_dq)
+            sol_q, sol_tauff  = arm_ik.solve_ik(
+                controller_data.get_matrix(XRControllerMatrix.LeftHandPose),
+                controller_data.get_matrix(XRControllerMatrix.RightHandPose),
+                current_lr_arm_q,
+                current_lr_arm_dq
+            )
             time_ik_end = time.time()
             logger_mp.debug(f"ik:\t{round(time_ik_end - time_ik_start, 6)}")
             arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)
@@ -407,9 +398,9 @@ if __name__ == '__main__':
                         left_hand_action = [dual_gripper_action_array[0]]
                         right_hand_action = [dual_gripper_action_array[1]]
                         current_body_state = arm_ctrl.get_current_motor_q().tolist()
-                        current_body_action = [-tele_data.left_ctrl_thumbstickValue[1]  * 0.3,
-                                               -tele_data.left_ctrl_thumbstickValue[0]  * 0.3,
-                                               -tele_data.right_ctrl_thumbstickValue[0] * 0.3]
+                        current_body_action = [controller_data.get_float(XRControllerFloat.LeftJoystickY) * WALKING_SPEED,
+                                              -controller_data.get_float(XRControllerFloat.LeftJoystickX) * WALKING_SPEED,
+                                              -controller_data.get_float(XRControllerFloat.RightJoystickX)* WALKING_SPEED]
                 elif (args.ee == "inspire_dfx" or args.ee == "inspire_ftp" or args.ee == "brainco") and args.input_mode == "hand":
                     with dual_hand_data_lock:
                         left_ee_state = dual_hand_state_array[:6]
@@ -425,9 +416,9 @@ if __name__ == '__main__':
                         left_hand_action = dual_hand_action_array[:6]
                         right_hand_action = dual_hand_action_array[-6:]
                         current_body_state = arm_ctrl.get_current_motor_q().tolist()
-                        current_body_action = [-tele_data.left_ctrl_thumbstickValue[1]  * 0.3,
-                                               -tele_data.left_ctrl_thumbstickValue[0]  * 0.3,
-                                               -tele_data.right_ctrl_thumbstickValue[0] * 0.3]
+                        current_body_action = [controller_data.get_float(XRControllerFloat.LeftJoystickY) * WALKING_SPEED,
+                                              -controller_data.get_float(XRControllerFloat.LeftJoystickX) * WALKING_SPEED,
+                                              -controller_data.get_float(XRControllerFloat.RightJoystickX)* WALKING_SPEED]
                 else:
                     left_ee_state = []
                     right_ee_state = []
