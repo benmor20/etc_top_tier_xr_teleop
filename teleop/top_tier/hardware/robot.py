@@ -1,6 +1,8 @@
 import math
+import threading
 import time
 from enum import Enum
+from typing import Generator
 
 import numpy as np
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber, ChannelPublisher
@@ -110,6 +112,9 @@ class RobotType(Enum):
 
         Returns:
             The RobotType represented by the given string
+
+        Raises:
+            KeyError: if the input string is not a robot type
         """
         return RobotType[string.upper()]
 
@@ -163,9 +168,12 @@ class Robot:
         self._crc = CRC()
 
         self._state_update_event = RepeatedEvent(CONTROL_DT, RepeatMode.START_TO_START, self._update_internal_state)
+        self._current_arm_motion_gen: Generator[None, None, None] | None = None
+        self._current_motion_num = 0
+        self._arm_cmd_lock = threading.Lock()
 
 
-    # PROPERTIES/GETTERS --------------------------------------------------------------------------
+    # MISC PROPERTIES -----------------------------------------------------------------------------
 
     @property
     def robot_type(self) -> RobotType:
@@ -190,6 +198,8 @@ class Robot:
             the LocoClient for this robot
         """
         return self._loco_client
+
+    # JOINTS --------------------------------------------------------------------------------------
 
     @property
     def joints(self) -> dict[JointType, Joint]:
@@ -363,6 +373,13 @@ class Robot:
         except ValueError:
             self._robot_fsm_state = RobotFSMState.Unknown
 
+        if self.is_arm_command_running:
+            try:
+                with self._arm_cmd_lock:
+                    next(self._current_arm_motion_gen)
+            except StopIteration:
+                self._current_arm_motion_gen = None
+
     def _get_low_level_state(self) -> LowState_:
         """
         Returns:
@@ -389,6 +406,83 @@ class Robot:
 
     # ARM COMMANDS --------------------------------------------------------------------------------
 
+    def set_upper_body_position(self, target_poses: list[dict[JointType, float]] | dict[JointType, float], max_vel: float = 15., block: bool = True, override: bool = True) -> bool:
+        """
+        Set the position of joints in the upper body, moving them there with up to max_vel speed.
+
+        All given joints must be in the upper body, and all given positions must be in range for that joint.
+        TODO this func does not set a limit on acceleration
+        The speed of each joint will be determined so that they all arrive at the same time, and the fastest
+        joint is moving at max_vel.
+        Any joints not in the given dict will not be moved
+
+        Args:
+            target_poses: a list of waypoints for the robot to hit, where each waypoint is a mapping of upper body
+                joints to their target positions (radians). Alternatively, a single waypoint represented like this
+            max_vel: rad/s, the maximum angular velocity the fastest joint may move
+            block: if True, this function will not exit until the movement is complete. Otherwise, the movement will run
+                in the background
+            override: what to do if there is a motion already running. If True, will stop it and start executing this
+                motion instead. Otherwise, will discard this motion
+
+        Returns:
+            True if this motion successfully executed, False if it did not. False can occur if override is False and a
+            motion is already running, or, if block, False can occur if this motion was overridden by something else. If
+            not block, this function will assume that the motion completes, and returns True (regardless of if a future
+            call overrides it).
+
+        Raises:
+            IllegalRobotStateException: if the robot is not in a state that is able to take joint commands, or if
+                enable_low_level_arm_control has not been called
+            IllegalRobotStateException: if a lower-body joint position is present in target_poses
+            JointOutOfBoundsException: if any pos is out of range for its corresponding joint
+        """
+        if isinstance(target_poses, dict):
+            target_poses = [target_poses]
+        if self._robot_fsm_state not in (RobotFSMState.G1Walking, RobotFSMState.R1Walking, RobotFSMState.R1Balancing):
+            raise IllegalRobotStateException(f"Cannot control the arms when robot is in {self._robot_fsm_state}")
+        if not self._doing_low_level_arms:
+            raise IllegalRobotStateException(f"Please call enable_low_level_arm_control before controlling the arms")
+        for target_pose in target_poses:
+            for joint_type, target_pos in target_pose.items():
+                if not joint_type.is_upper_body:
+                    raise IllegalJointCommandException(f"Cannot set the position of {joint_type.name}")
+                self.joints[joint_type].assert_pos_in_range(target_pos)
+
+        if self.is_arm_command_running and not override:
+            return False
+
+        with self._arm_cmd_lock:
+            self._current_motion_num += 1
+            this_motion_num = self._current_motion_num
+
+            self._set_arm_sdk_weight(1.)
+            for joint_idx in range(len(self._arm_cmd.motor_cmd)):
+                self._arm_cmd.motor_cmd[joint_idx].mode = 0  # by default ignore all joints - will override the joints we're using
+                self._arm_cmd.motor_cmd[joint_idx].dq = 0.
+                self._arm_cmd.motor_cmd[joint_idx].tau = 0.
+
+            dense_waypoints = self._create_waypoints_with_max_vel(target_poses, max_vel)
+            self._current_arm_motion_gen = self._set_upper_body_position_gen(dense_waypoints)
+
+        if block:  # the motion will be executed by the update loop, just wait for it to be done
+            while self.is_arm_command_running:
+                time.sleep(CONTROL_DT)
+                # dont think we need arm_cmd_lock here, since we're only checking the value (i.e. only need to reference
+                # it in memory once) but if anything more complex happens here, should lock
+                if self._current_motion_num != this_motion_num:  # has been overridden
+                    return False
+        self._current_arm_motion_gen = None
+        return True
+
+    @property
+    def is_arm_command_running(self) -> bool:
+        """
+        Returns:
+            True if there is an arm command currently running, False otherwise
+        """
+        return self._current_arm_motion_gen is not None
+
     def _set_arm_sdk_weight(self, weight: float) -> None:
         """
         Set the weight of low-level control to the current command
@@ -404,6 +498,21 @@ class Robot:
         else:
             raise UnknownRobotException(f"Do not know how to set arm sdk weight on {self.robot_type}")
 
+    def _set_upper_body_position_gen(self, waypoints: list[dict[JointType, float]]) -> Generator[None, None, None]:
+        """
+        Run through a set of waypoints, returning control of the current thread after each call
+
+        Expects that this function will be called every CONTROL_DT seconds
+
+        Args:
+            waypoints: the list of waypoints to travel through
+        """
+        for waypoint in waypoints:
+            for joint_type, pos in waypoint.items():
+                self._joints[joint_type].add_to_cmd(self._arm_cmd, pos)
+                yield None
+            self._send_arm_command(False)
+
     def _send_arm_command(self, block_for_control_dt: bool = True) -> None:
         """
         Send the stored arm command
@@ -418,55 +527,14 @@ class Robot:
         if block_for_control_dt:
             time.sleep(CONTROL_DT)
 
-    def set_upper_body_position(self, target_poses: dict[JointType, float], max_vel: float = 3.) -> None:
+    def _create_waypoints_with_max_vel(self, sparse_waypoints: list[dict[JointType, float]], max_vel: float) -> list[dict[JointType, float]]:
         """
-        Set the position of joints in the upper body, moving them there with up to max_vel speed.
-
-        All given joints must be in the upper body, and all given positions must be in range for that joint.
-        TODO this func does not set a limit on acceleration
-        The speed of each joint will be determined so that they all arrive at the same time, and the fastest
-        joint is moving at max_vel.
-        This function blocks until the movement is complete - TODO: dont?
-        Any joints not in the given dict will not be moved
+        Fills in a list of waypoints with a dense plan, so that when each waypoint is moved to at a rate of CONTROL_DT,
+        the motions will be subject to max_vel
 
         Args:
-            target_poses: a mapping of upper body joints to their target positions (radians)
-            max_vel: rad/s, the maximum angular velocity the fastest joint may move
-
-        Raises:
-            IllegalRobotStateException: if the robot is not in a state that is able to take joint commands, or if
-                enable_low_level_arm_control has not been called
-            IllegalRobotStateException: if a lower-body joint position is present in target_poses
-            JointOutOfBoundsException: if any pos is out of range for its corresponding joint
-        """
-        if self._robot_fsm_state not in (RobotFSMState.G1Walking, RobotFSMState.R1Walking, RobotFSMState.R1Balancing):
-            raise IllegalRobotStateException(f"Cannot control the arms when robot is in {self._robot_fsm_state}")
-        if not self._doing_low_level_arms:
-            raise IllegalRobotStateException(f"Please call enable_low_level_arm_control before controlling the arms")
-        for joint_type, target_pos in target_poses.items():
-            if not joint_type.is_upper_body:
-                raise IllegalJointCommandException(f"Cannot set the position of {joint_type.name}")
-            self.joints[joint_type].assert_pos_in_range(target_pos)
-
-        self._set_arm_sdk_weight(1.)
-        for joint_idx in range(len(self._arm_cmd.motor_cmd)):
-            self._arm_cmd.motor_cmd[joint_idx].mode = 0  # by default ignore all joints - will override the joints we're using
-            self._arm_cmd.motor_cmd[joint_idx].dq = 0.
-            self._arm_cmd.motor_cmd[joint_idx].tau = 0.
-
-        waypoints = self._create_waypoints_with_max_vel(target_poses, max_vel)
-        for waypoint in waypoints:
-            for joint_type, pos in waypoint.items():
-                self._joints[joint_type].add_to_cmd(self._arm_cmd, pos)
-            self._send_arm_command()
-
-    def _create_waypoints_with_max_vel(self, target_poses: dict[JointType, float], max_vel: float) -> list[dict[JointType, float]]:
-        """
-        Create a list of joint waypoints moving from the current position to the given target_poses, subject to the
-        given max_vel
-
-        Args:
-            target_poses: a mapping of upper body joints to their target positions (radians)
+            sparse_waypoints: a list of waypoints for the robot to hit, where each waypoint is a mapping of upper body
+                joints to their target positions (radians)
             max_vel: rad/s, the maximum angular velocity the fastest joint may move
 
         Returns:
@@ -476,19 +544,24 @@ class Robot:
         if max_vel <= 0:
             raise ValueError("max_vel must be positive")
 
-        starting_poses = self.get_current_joint_positions()
-        max_delta = max(
-            abs(target_pos - starting_poses[joint_type])
-            for joint_type, target_pos in target_poses.items()
-        )
-        duration = max_delta / max_vel
-        num_steps = max(1, math.ceil(duration / CONTROL_DT))
+        starting_pose = self.get_current_joint_positions()
+        dense_waypoints = []
+        for waypoint in sparse_waypoints:
+            max_delta = max(
+                abs(target_pos - starting_pose[joint_type])
+                for joint_type, target_pos in waypoint.items()
+            )
+            duration = max_delta / max_vel
+            num_steps = max(1, math.ceil(duration / CONTROL_DT))
 
-        return [
-            {
-                joint_type: starting_poses[joint_type] + (target_pos - starting_poses[joint_type]) * (step / num_steps)
-                for joint_type, target_pos in target_poses.items()
-            }
-            for step in range(1, num_steps + 1)
-        ]
+            dense_waypoints.extend([
+                {
+                    joint_type: starting_pose[joint_type] + (target_pos - starting_pose[joint_type]) * (
+                                step / num_steps)
+                    for joint_type, target_pos in waypoint.items()
+                }
+                for step in range(1, num_steps + 1)
+            ])
+            starting_pose = waypoint
 
+        return dense_waypoints

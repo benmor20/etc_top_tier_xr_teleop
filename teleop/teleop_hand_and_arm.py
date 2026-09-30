@@ -5,7 +5,9 @@ import threading
 import logging_mp
 
 from top_tier.general.constants import WALKING_SPEED
+from top_tier.general.motion_data import MOTION_DATA_DICT
 from top_tier.general.xr_controllers import XRControllers, XRControllerButton, XRControllerFloat, XRControllerMatrix
+from top_tier.hardware.robot import Robot, RobotType
 
 logging_mp.basicConfig(level=logging_mp.INFO)
 logger_mp = logging_mp.getLogger(__name__)
@@ -142,7 +144,6 @@ if __name__ == '__main__':
                                      webrtc_url=f"https://{args.img_server_ip}:{camera_config['head_camera']['webrtc_port']}/offer",
                                      arm_reference_mode="head_yaw"
                                      )
-        controller_data = XRControllers(tv_wrapper)
         
         # motion mode (G1: Regular mode R1+X, not Running mode R2+A)
         if args.motion:
@@ -267,6 +268,13 @@ if __name__ == '__main__':
                                      frequency = args.frequency, 
                                      rerun_log = not args.headless)
 
+        # extra setup for top tier
+        controller_data = XRControllers(tv_wrapper)
+        try:
+            robot = Robot(RobotType.from_str(args.arm.split("_")[0]))
+        except KeyError:
+            robot = None
+
         logger_mp.info("----------------------------------------------------------------")
         logger_mp.info("🟢  Press [r] to start syncing the robot with your movements.")
         if args.record:
@@ -290,7 +298,10 @@ if __name__ == '__main__':
         right_wrist_img = None
 
         def print_state():
-            print(arm_ctrl.get_current_dual_arm_q())
+            if robot is None:
+                print(arm_ctrl.get_current_dual_arm_q())
+            else:
+                print(robot.get_current_joint_positions())
         KeyboardListener.add_listener("l", print_state)
 
         # main loop. robot start to follow VR user's motion
@@ -351,28 +362,37 @@ if __name__ == '__main__':
                 # command robot to enter damping mode. soft emergency stop function
                 if controller_data.get_button(XRControllerButton.LeftJoystick) and controller_data.get_button(XRControllerButton.RightJoystick):
                     loco_wrapper.Damp()
+                    START = False
+                    STOP = True
                 loco_wrapper.Move(controller_data.get_float(XRControllerFloat.LeftJoystickY) * WALKING_SPEED,
                                   -controller_data.get_float(XRControllerFloat.LeftJoystickX) * WALKING_SPEED,
                                   -controller_data.get_float(XRControllerFloat.RightJoystickX)* WALKING_SPEED)
 
-            # get current robot state data.
-            current_lr_arm_q  = arm_ctrl.get_current_dual_arm_q()
-            current_lr_arm_dq = arm_ctrl.get_current_dual_arm_dq()
+            # start an arm motion on button press
+            if robot is not None:
+                for button, motion in MOTION_DATA_DICT.items():
+                    if controller_data.was_button_just_pressed(button):
+                        robot.set_upper_body_position(motion, block=False)
 
-            # solve ik using motor data and wrist pose, then use ik results to control arms.
-            time_ik_start = time.time()
-            sol_q, sol_tauff  = arm_ik.solve_ik(
-                controller_data.get_matrix(XRControllerMatrix.LeftHandPose),
-                controller_data.get_matrix(XRControllerMatrix.RightHandPose),
-                current_lr_arm_q,
-                current_lr_arm_dq
-            )
-            time_ik_end = time.time()
-            logger_mp.debug(f"ik:\t{round(time_ik_end - time_ik_start, 6)}")
-            arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)
+            if robot is None or not robot.is_arm_command_running:
+                # get current robot state data.
+                current_lr_arm_q  = arm_ctrl.get_current_dual_arm_q()
+                current_lr_arm_dq = arm_ctrl.get_current_dual_arm_dq()
+
+                # solve ik using motor data and wrist pose, then use ik results to control arms.
+                time_ik_start = time.time()
+                sol_q, sol_tauff  = arm_ik.solve_ik(
+                    controller_data.get_matrix(XRControllerMatrix.LeftHandPose),
+                    controller_data.get_matrix(XRControllerMatrix.RightHandPose),
+                    current_lr_arm_q,
+                    current_lr_arm_dq
+                )
+                time_ik_end = time.time()
+                logger_mp.debug(f"ik:\t{round(time_ik_end - time_ik_start, 6)}")
+                arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)
 
             # record data
-            if args.record:
+            if args.record:  # TODO does not work if we run an arm command
                 READY = recorder.is_ready() # now ready to (2) enter RECORD_RUNNING state
                 # dex hand or gripper
                 if args.ee == "dex3" and args.input_mode == "hand":
