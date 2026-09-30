@@ -10,14 +10,12 @@ from unitree_sdk2py.idl import unitree_hg_msg_dds__LowCmd_
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_, LowCmd_
 from unitree_sdk2py.utils.crc import CRC
 
-from teleop.top_tier.general.repeated_event import RepeatedEvent
-from teleop.top_tier.hardware.extensions import R1LocoClient, G1LocoClient
-from teleop.top_tier.hardware.joint import Joint, JointType
-from teleop.top_tier.general.constants import NETWORK_INTERFACE, CONTROL_DT, G1_ARM_SDK_WEIGHT_MOTOR_IDX
-from top_tier.general.exceptions import IllegalRobotStateException, IllegalJointCommandException, \
-    JointOutOfBoundsException, UnknownRobotException
+from top_tier.general.repeated_event import RepeatedEvent
+from top_tier.hardware.extensions import R1LocoClient, G1LocoClient
+from top_tier.hardware.joint import Joint, JointType
+from top_tier.general.constants import NETWORK_INTERFACE, CONTROL_DT, G1_ARM_SDK_WEIGHT_MOTOR_IDX
+from top_tier.general.exceptions import IllegalRobotStateException, IllegalJointCommandException, UnknownRobotException
 from top_tier.general.repeated_event import RepeatMode
-from top_tier.hardware import joint
 
 _G1_JOINTS = {
     # Left arm
@@ -325,13 +323,16 @@ class Robot:
         self.loco_client.SetFsmId(RobotFSMState.Damping.value)
         self._state_update_event.stop()
 
-    def shutdown(self, enter_damping: bool = True) -> None:
+    def shutdown(self, enter_damping: bool = True, control_has_been_released: bool = False) -> None:
         """
         Shut down the robot
 
         Args:
             enter_damping: if True, will move the robot to damping mode
+            control_has_been_released: whether low level arm control has been released. ONLY SET IF YOURE SURE
         """
+        if control_has_been_released:
+            self._doing_low_level_arms = False
         if self._doing_low_level_arms:
             self.release_low_level_arm_control()
         if enter_damping:
@@ -373,12 +374,12 @@ class Robot:
         except ValueError:
             self._robot_fsm_state = RobotFSMState.Unknown
 
-        if self.is_arm_command_running:
-            try:
-                with self._arm_cmd_lock:
+        with self._arm_cmd_lock:
+            if self.is_arm_command_running:
+                try:
                     next(self._current_arm_motion_gen)
-            except StopIteration:
-                self._current_arm_motion_gen = None
+                except StopIteration:
+                    self._current_arm_motion_gen = None
 
     def _get_low_level_state(self) -> LowState_:
         """
@@ -472,7 +473,8 @@ class Robot:
                 # it in memory once) but if anything more complex happens here, should lock
                 if self._current_motion_num != this_motion_num:  # has been overridden
                     return False
-        self._current_arm_motion_gen = None
+            with self._arm_cmd_lock:
+                self._current_arm_motion_gen = None
         return True
 
     @property
@@ -542,7 +544,7 @@ class Robot:
                 a mapping from joint type to its target position (rad) for that waypoint
         """
         if max_vel <= 0:
-            raise ValueError("max_vel must be positive")
+            return sparse_waypoints
 
         starting_pose = self.get_current_joint_positions()
         dense_waypoints = []

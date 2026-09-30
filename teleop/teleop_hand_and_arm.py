@@ -3,10 +3,12 @@ import argparse
 from multiprocessing import Value, Array, Lock
 import threading
 import logging_mp
+import numpy as np
 
 from top_tier.general.constants import WALKING_SPEED
 from top_tier.general.motion_data import MOTION_DATA_DICT
 from top_tier.general.xr_controllers import XRControllers, XRControllerButton, XRControllerFloat, XRControllerMatrix
+from top_tier.hardware.joint import JointType
 from top_tier.hardware.robot import Robot, RobotType
 
 logging_mp.basicConfig(level=logging_mp.INFO)
@@ -21,7 +23,9 @@ sys.path.append(parent_dir)
 from teleop.top_tier.general.keyboard_listener import KeyboardListener
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize # dds 
 from televuer import TeleVuerWrapper
-from teleop.robot_control.robot_arm import G1_29_ArmController, G1_29_Arm_Internal_Dex1_Controller, G1_23_ArmController, H1_2_ArmController, H1_ArmController, H2_ArmController, R1_A5_ArmController, R1_A7_ArmController
+from teleop.robot_control.robot_arm import G1_29_ArmController, G1_29_Arm_Internal_Dex1_Controller, G1_23_ArmController, \
+    H1_2_ArmController, H1_ArmController, H2_ArmController, R1_A5_ArmController, R1_A7_ArmController, \
+    G1_29_JointArmIndex, R1_A5_JointIndex
 from teleop.robot_control.robot_arm_ik import G1_29_ArmIK, G1_23_ArmIK, H1_2_ArmIK, H1_ArmIK, H2_ArmIK, R1_A5_ArmIK, R1_A7_ArmIK
 from teleimager.image_client import ImageClient
 from teleop.utils.episode_writer import EpisodeWriter
@@ -76,6 +80,27 @@ def get_state() -> dict:
         "READY": READY,
         "RECORD_RUNNING": RECORD_RUNNING,
     }
+
+
+def convert_to_joint_map(data: np.ndarray, robot_type: RobotType) -> dict[JointType, float]:
+    """
+    Convert some joint-specific data to a dict which maps what joint it represents to its value
+
+    Assumes the data only applies to the two arms, and is in the same order as used in xr_teleoperate
+
+    Args:
+        data: the values to convert, in some vector provided by Unitree
+        robot_type: what type of robot the data comes from
+
+    Returns:
+        the same data, keyed by JointType instead of an arbitrary index
+    """
+    joint_order = G1_29_JointArmIndex if robot_type == RobotType.G1 else R1_A5_JointIndex
+    res = {}
+    for unitree_joint, value in zip(joint_order, data):
+        res[JointType.from_unitree(unitree_joint)] = value
+    return res
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -272,6 +297,9 @@ if __name__ == '__main__':
         controller_data = XRControllers(tv_wrapper)
         try:
             robot = Robot(RobotType.from_str(args.arm.split("_")[0]))
+            robot.initialize()
+            time.sleep(0.5)
+            robot.enable_low_level_arm_control()
         except KeyError:
             robot = None
 
@@ -368,27 +396,32 @@ if __name__ == '__main__':
                                   -controller_data.get_float(XRControllerFloat.LeftJoystickX) * WALKING_SPEED,
                                   -controller_data.get_float(XRControllerFloat.RightJoystickX)* WALKING_SPEED)
 
-            # start an arm motion on button press
+            # get current robot state data.
+            current_lr_arm_q = arm_ctrl.get_current_dual_arm_q()
+            current_lr_arm_dq = arm_ctrl.get_current_dual_arm_dq()
+
+            # solve ik using motor data and wrist pose, then use ik results to control arms.
+            time_ik_start = time.time()
+            sol_q, sol_tauff = arm_ik.solve_ik(
+                controller_data.get_matrix(XRControllerMatrix.LeftHandPose),
+                controller_data.get_matrix(XRControllerMatrix.RightHandPose),
+                current_lr_arm_q,
+                current_lr_arm_dq
+            )
+            time_ik_end = time.time()
+            logger_mp.debug(f"ik:\t{round(time_ik_end - time_ik_start, 6)}")
+
             if robot is not None:
+                # start an arm motion on button press
                 for button, motion in MOTION_DATA_DICT.items():
                     if controller_data.was_button_just_pressed(button):
                         robot.set_upper_body_position(motion, block=False)
-
-            if robot is None or not robot.is_arm_command_running:
-                # get current robot state data.
-                current_lr_arm_q  = arm_ctrl.get_current_dual_arm_q()
-                current_lr_arm_dq = arm_ctrl.get_current_dual_arm_dq()
-
-                # solve ik using motor data and wrist pose, then use ik results to control arms.
-                time_ik_start = time.time()
-                sol_q, sol_tauff  = arm_ik.solve_ik(
-                    controller_data.get_matrix(XRControllerMatrix.LeftHandPose),
-                    controller_data.get_matrix(XRControllerMatrix.RightHandPose),
-                    current_lr_arm_q,
-                    current_lr_arm_dq
-                )
-                time_ik_end = time.time()
-                logger_mp.debug(f"ik:\t{round(time_ik_end - time_ik_start, 6)}")
+                # if no motion running, do teleop
+                if not robot.is_arm_command_running:
+                    # TODO add tau
+                    pose = convert_to_joint_map(sol_q, robot.robot_type)
+                    robot.set_upper_body_position(pose, max_vel=-1)
+            else:
                 arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)
 
             # record data
@@ -555,6 +588,8 @@ if __name__ == '__main__':
     finally:
         try:
             arm_ctrl.ctrl_dual_arm_go_home()
+            if robot is not None:
+                robot.shutdown(False, control_has_been_released=True)
         except Exception as e:
             logger_mp.error(f"Failed to ctrl_dual_arm_go_home: {e}")
         
@@ -597,5 +632,6 @@ if __name__ == '__main__':
                 recorder.close()
         except Exception as e:
             logger_mp.error(f"Failed to close recorder: {e}")
+
         logger_mp.info("✅ Finally, exiting program.")
         exit(0)

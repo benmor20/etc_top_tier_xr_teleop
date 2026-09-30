@@ -1,8 +1,8 @@
+import re
 from enum import IntEnum, auto
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_, LowCmd_
 
 from top_tier.general.exceptions import JointOutOfBoundsException
-
 
 class JointType(IntEnum):
     # Head
@@ -73,6 +73,41 @@ class JointType(IntEnum):
 			JointType.RightWristYaw,
 			JointType.WaistYaw,
         )
+
+    @staticmethod
+    def from_string(string: str) -> 'JointType':
+        """
+        Get a JointType from a string
+
+        Args:
+            string: the string representation of this joint type
+
+        Returns:
+            a JointType corresponding to the given string
+
+        Raises:
+            KeyError: if the string does not represent a JointType
+        """
+        remove_from_start = [r"(R1_A5|G1_29)_Joint(Arm|Head)?Index", r"JointType", r"\.", r"k"]
+        for regex in remove_from_start:
+            if (match := re.match("^" + regex, string)) is not None:
+                string = string[len(match.group(0)):]
+        if string == "LeftWristyaw":
+            string = "LeftWristYaw"  # dammit unitree
+        return JointType[string]
+
+    @staticmethod
+    def from_unitree(unitree_joint) -> 'JointType':
+        """
+        Convert a unitree joint index to a joint type
+
+        Args:
+            unitree_joint: a value from a unitree joint enum
+
+        Returns:
+            the JointType corresponding to that unitree joint
+        """
+        return JointType.from_string(unitree_joint.name)
 
 
 class Joint:
