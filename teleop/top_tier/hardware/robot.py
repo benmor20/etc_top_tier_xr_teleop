@@ -136,16 +136,18 @@ class Robot:
     """
     Base class for all types of robots
     """
-    def __init__(self, robot_type: RobotType):
+    def __init__(self, robot_type: RobotType, is_channel_initialized: bool = False):
         """
-        Create a new instance of a robot
+        Create a new instance of a robot and do all relevant setup
 
         Args:
             robot_type: the type of robot this instance represents
+            is_channel_initialized: whether ChannelFactoryInitialize has already been called
         """
         self._robot_type = robot_type
 
-        ChannelFactoryInitialize(0, NETWORK_INTERFACE)
+        if not is_channel_initialized:
+            ChannelFactoryInitialize(0, NETWORK_INTERFACE)
         self._loco_client = G1LocoClient() if robot_type == RobotType.G1 else R1LocoClient()
         self._loco_client.SetTimeout(1.0)
 
@@ -252,6 +254,16 @@ class Robot:
             joint_poses[joint.joint_type] = joint.pos
         return joint_poses
 
+    def get_current_joint_velocities(self) -> dict[JointType, float]:
+        """
+        Returns:
+            a mapping of each JointType on this robot and its corresponding joint position
+        """
+        joint_vels = {}
+        for joint in self.joint_set:
+            joint_vels[joint.joint_type] = joint.vel
+        return joint_vels
+
     def get_upper_body_joint_positions(self) -> dict[JointType, float]:
         """
         Returns:
@@ -323,16 +335,13 @@ class Robot:
         self.loco_client.SetFsmId(RobotFSMState.Damping.value)
         self._state_update_event.stop()
 
-    def shutdown(self, enter_damping: bool = True, control_has_been_released: bool = False) -> None:
+    def shutdown(self, enter_damping: bool = True) -> None:
         """
         Shut down the robot
 
         Args:
             enter_damping: if True, will move the robot to damping mode
-            control_has_been_released: whether low level arm control has been released. ONLY SET IF YOURE SURE
         """
-        if control_has_been_released:
-            self._doing_low_level_arms = False
         if self._doing_low_level_arms:
             self.release_low_level_arm_control()
         if enter_damping:
