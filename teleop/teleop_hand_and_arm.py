@@ -5,7 +5,7 @@ import threading
 import logging_mp
 import numpy as np
 
-from teleop.top_tier.hardware.robot import RobotFSMState
+from top_tier.hardware.robot import RobotFSMState, ControlMode
 from top_tier.general.constants import WALKING_SPEED
 from top_tier.general.motion_data import MOTION_DATA_DICT
 from top_tier.general.xr_controllers import XRControllers, XRControllerButton, XRControllerFloat, XRControllerMatrix
@@ -79,14 +79,15 @@ def get_state() -> dict:
     }
 
 
-def convert_to_joint_map(data: np.ndarray, robot_type: RobotType) -> dict[JointType, float]:
+def convert_to_joint_map(poses: np.ndarray, kffs: np.ndarray, robot_type: RobotType) -> dict[JointType, tuple[float, float]]:
     """
     Convert some joint-specific data to a dict which maps what joint it represents to its value
 
     Assumes the data only applies to the two arms, and is in the same order as used in xr_teleoperate
 
     Args:
-        data: the values to convert, in some vector provided by Unitree
+        poses: the joint poses to convert, in a vector provided by unitree
+        kffs: the joint feedforward values to convert, in a vector provided by unitree
         robot_type: what type of robot the data comes from
 
     Returns:
@@ -94,8 +95,10 @@ def convert_to_joint_map(data: np.ndarray, robot_type: RobotType) -> dict[JointT
     """
     joint_order = G1_29_JointArmIndex if robot_type == RobotType.G1 else R1_A5_JointIndex
     res = {}
-    for unitree_joint, value in zip(joint_order, data):
-        res[JointType.from_unitree(unitree_joint)] = value
+    for unitree_joint, pos, kff in zip(joint_order, poses, kffs):
+        joint = JointType.from_unitree(unitree_joint)
+        assert joint.is_upper_body, f"{joint} (from {type(unitree_joint)}, {unitree_joint.name}) is not upper body"
+        res[JointType.from_unitree(unitree_joint)] = (pos, kff)
     return res
 
 
@@ -291,7 +294,7 @@ if __name__ == '__main__':
         robot = Robot(robot_type, True)
         robot.initialize()
         time.sleep(0.5)
-        robot.enable_low_level_arm_control()
+        robot.set_control_mode(ControlMode.Waypoints)
 
         logger_mp.info("----------------------------------------------------------------")
         logger_mp.info("🟢  Press [r] to start syncing the robot with your movements.")
@@ -317,6 +320,7 @@ if __name__ == '__main__':
         KeyboardListener.add_listener("l", print_state)
 
         # main loop. robot start to follow VR user's motion
+        loop_time = 1. / args.frequency
         while not STOP:
             start_time = time.time()
             # get image
@@ -360,18 +364,21 @@ if __name__ == '__main__':
             # start an arm motion on button press
             for button, motion in MOTION_DATA_DICT.items():
                 if controller_data.was_button_just_pressed(button):
-                    robot.set_upper_body_position(motion, block=False)
+                    robot.set_control_mode(ControlMode.Waypoints)
+                    robot.set_max_velocity(3.)
+                    robot.move_to_waypoints(motion, block=False)
             # if no motion running, do teleop
             if not robot.is_arm_command_running:
-                # TODO add tau
-                pose = convert_to_joint_map(sol_q, robot.robot_type)
-                robot.set_upper_body_position(pose, max_vel=-1)
+                robot.set_control_mode(ControlMode.TrackTarget)
+                robot.set_max_velocity(50.)
+                pose = convert_to_joint_map(sol_q, sol_tauff, robot.robot_type)
+                robot.set_target_position(pose)
 
             current_time = time.time()
             time_elapsed = current_time - start_time
-            sleep_time = max(0, (1 / args.frequency) - time_elapsed)
+            sleep_time = max(0, loop_time - time_elapsed)
             time.sleep(sleep_time)
-            logger_mp.debug(f"main process sleep: {sleep_time}")
+            logger_mp.debug(f"main process run time: {time_elapsed}, sleeping for {sleep_time}")
 
     except KeyboardInterrupt:
         logger_mp.info("⛔ KeyboardInterrupt, exiting program...")

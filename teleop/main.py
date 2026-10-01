@@ -20,7 +20,7 @@ def main():
     robot.enable_low_level_arm_control()
 
     robot.loco_client.SetVelocity(0.2, 0., 0., 3.)
-    robot.set_upper_body_position(MOTION_DATA_DICT[XRControllerButton.X], block=False)
+    robot.move_to_waypoints(MOTION_DATA_DICT[XRControllerButton.X], block=False)
     print("Queued motion")
 
     time.sleep(10.)
