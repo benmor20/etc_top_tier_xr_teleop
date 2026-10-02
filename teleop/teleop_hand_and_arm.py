@@ -294,7 +294,7 @@ if __name__ == '__main__':
         robot = Robot(robot_type, True)
         robot.initialize()
         time.sleep(0.5)
-        robot.set_control_mode(ControlMode.Waypoints)
+        robot.set_max_velocity(50.)
 
         logger_mp.info("----------------------------------------------------------------")
         logger_mp.info("🟢  Press [r] to start syncing the robot with your movements.")
@@ -311,6 +311,7 @@ if __name__ == '__main__':
 
         logger_mp.info("---------------------🚀start Tracking🚀-------------------------")
 
+        robot.set_control_mode(ControlMode.Mixed)
         head_img = None
         left_wrist_img = None
         right_wrist_img = None
@@ -364,15 +365,11 @@ if __name__ == '__main__':
             # start an arm motion on button press
             for button, motion in MOTION_DATA_DICT.items():
                 if controller_data.was_button_just_pressed(button):
-                    robot.set_control_mode(ControlMode.Waypoints)
-                    robot.set_max_velocity(3.)
-                    robot.move_to_waypoints(motion, block=False)
-            # if no motion running, do teleop
-            if not robot.is_arm_command_running:
-                robot.set_control_mode(ControlMode.TrackTarget)
-                robot.set_max_velocity(50.)
-                pose = convert_to_joint_map(sol_q, sol_tauff, robot.robot_type)
-                robot.set_target_position(pose)
+                    robot.move_to_waypoints(motion, max_vel=3., block=False)
+            # do teleop
+            # any joints being controlled by a motion will not move here
+            pose = convert_to_joint_map(sol_q, sol_tauff, robot.robot_type)
+            robot.set_target_position(pose)
 
             current_time = time.time()
             time_elapsed = current_time - start_time

@@ -35,5 +35,11 @@ MOTION_DATA_DICT = {
             JointType.RightWristYaw: -0.09476,
             JointType.WaistYaw: -2.617,
         }
-    ]
+    ],
+
+    XRControllerButton.Y: [
+        {
+            JointType.WaistYaw: 0.
+        }
+    ],
 }
