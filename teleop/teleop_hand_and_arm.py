@@ -6,7 +6,7 @@ import logging_mp
 import numpy as np
 
 from top_tier.hardware.robot import RobotFSMState, ControlMode
-from top_tier.general.constants import WALKING_SPEED
+from top_tier.general.constants import WALKING_SPEED_FORWARD, WALKING_SPEED_STRAFE, WALKING_SPEED_THETA
 from top_tier.general.motion_data import MOTION_DATA_DICT
 from top_tier.general.xr_controllers import XRControllers, XRControllerButton, XRControllerFloat, XRControllerMatrix
 from top_tier.hardware.joint import JointType
@@ -343,9 +343,11 @@ if __name__ == '__main__':
                     robot.set_fsm_state(RobotFSMState.Damping)
                     START = False
                     STOP = True
-                robot.loco_client.Move(controller_data.get_float(XRControllerFloat.LeftJoystickY) * WALKING_SPEED,
-                                      -controller_data.get_float(XRControllerFloat.LeftJoystickX) * WALKING_SPEED,
-                                      -controller_data.get_float(XRControllerFloat.RightJoystickX)* WALKING_SPEED)
+                x_speed = controller_data.get_float(XRControllerFloat.LeftJoystickY) * WALKING_SPEED_FORWARD
+                y_speed = -controller_data.get_float(XRControllerFloat.LeftJoystickX) * WALKING_SPEED_STRAFE
+                theta_speed = -controller_data.get_float(XRControllerFloat.RightJoystickX) * WALKING_SPEED_THETA
+                robot.loco_client.Move(x_speed, y_speed, theta_speed)
+                # logger_mp.info(f"Moving {x_speed}, {y_speed}, {theta_speed}")
 
             # get current robot state data.
             current_lr_arm_q = get_current_dual_arm_q(robot)
