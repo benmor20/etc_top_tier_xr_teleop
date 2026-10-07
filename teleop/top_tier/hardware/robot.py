@@ -5,7 +5,7 @@ from enum import Enum, auto
 from typing import Generator
 
 import numpy as np
-from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber, ChannelPublisher
+from unitree_sdk2py.core.channel import ChannelSubscriber, ChannelPublisher
 from unitree_sdk2py.idl import unitree_hg_msg_dds__LowCmd_
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_, LowCmd_
 from unitree_sdk2py.utils.crc import CRC
@@ -169,18 +169,17 @@ class Robot:
     """
     Base class for all types of robots
     """
-    def __init__(self, robot_type: RobotType, is_channel_initialized: bool = False):
+    def __init__(self, robot_type: RobotType):
         """
         Create a new instance of a robot and do all relevant setup
 
+        Assumes ChannelFactoryInitialize has already been called
+
         Args:
             robot_type: the type of robot this instance represents
-            is_channel_initialized: whether ChannelFactoryInitialize has already been called
         """
         self._robot_type = robot_type
 
-        if not is_channel_initialized:
-            ChannelFactoryInitialize(0, NETWORK_INTERFACE)
         self._loco_client = G1LocoClient() if robot_type == RobotType.G1 else R1LocoClient()
         self._loco_client.SetTimeout(1.0)
 

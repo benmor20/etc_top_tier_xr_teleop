@@ -30,8 +30,11 @@ class JointType(Enum):
     MiddleJoint2 = 6
 
 
-LOWER = np.array([-1., -1., 0., -1.6, -1.8, -1.6, -1.8])
-UPPER = np.array([1., .65, 1.45, 0., 0., 0., 0.])
+# LOWER = np.array([-1., -1., 0., -1.6, -1.8, -1.6, -1.8])
+# UPPER = np.array([1., .65, 1.5, 0., 0., 0., 0.])
+
+LOWER = np.deg2rad(np.array([-60., -60., 0., -90., -100., -90., -100.]))
+UPPER = np.deg2rad(np.array([60., 35., 100., 0., 0., 0., 0.]))
 KP = 1.5
 KD = 0.2
 

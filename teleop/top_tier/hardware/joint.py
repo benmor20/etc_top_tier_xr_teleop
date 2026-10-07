@@ -48,6 +48,24 @@ class JointType(IntEnum):
     RightAnklePitch = auto()
     RightAnkleRoll = auto()
 
+    # Left hand
+    LeftThumbYaw = auto()
+    LeftThumbJoint1 = auto()
+    LeftThumbJoint2 = auto()
+    LeftIndexFingerJoint1 = auto()
+    LeftIndexFingerJoint2 = auto()
+    LeftMiddleFingerJoint1 = auto()
+    LeftMiddleFingerJoint2 = auto()
+
+    # Right hand
+    RightThumbYaw = auto()
+    RightThumbJoint1 = auto()
+    RightThumbJoint2 = auto()
+    RightIndexFingerJoint1 = auto()
+    RightIndexFingerJoint2 = auto()
+    RightMiddleFingerJoint1 = auto()
+    RightMiddleFingerJoint2 = auto()
+
     @property
     def is_upper_body(self) -> bool:
         """
@@ -72,6 +90,60 @@ class JointType(IntEnum):
 			JointType.RightWristPitch,
 			JointType.RightWristYaw,
 			JointType.WaistYaw,
+            JointType.LeftThumbYaw,
+            JointType.LeftThumbJoint1,
+            JointType.LeftThumbJoint2,
+            JointType.LeftIndexFingerJoint1,
+            JointType.LeftIndexFingerJoint2,
+            JointType.LeftMiddleFingerJoint1,
+            JointType.LeftMiddleFingerJoint2,
+            JointType.RightThumbYaw,
+            JointType.RightThumbJoint1,
+            JointType.RightThumbJoint2,
+            JointType.RightIndexFingerJoint1,
+            JointType.RightIndexFingerJoint2,
+            JointType.RightMiddleFingerJoint1,
+            JointType.RightMiddleFingerJoint2
+        )
+
+    @property
+    def is_core_robot(self) -> bool:
+        """
+        Returns:
+            True if the joint is part of the robot itself, False if it is part of an external device
+        """
+        return self in (
+            JointType.HeadPitch,
+            JointType.HeadYaw,
+            JointType.LeftShoulderPitch,
+            JointType.LeftShoulderRoll,
+            JointType.LeftShoulderYaw,
+            JointType.LeftElbow,
+            JointType.LeftWristRoll,
+            JointType.LeftWristPitch,
+            JointType.LeftWristYaw,
+            JointType.RightShoulderPitch,
+            JointType.RightShoulderRoll,
+            JointType.RightShoulderYaw,
+            JointType.RightElbow,
+            JointType.RightWristRoll,
+            JointType.RightWristPitch,
+            JointType.RightWristYaw,
+            JointType.WaistYaw,
+            JointType.WaistRoll,
+            JointType.WaistPitch,
+            JointType.LeftHipPitch,
+            JointType.LeftHipRoll,
+            JointType.LeftHipYaw,
+            JointType.LeftKnee,
+            JointType.LeftAnklePitch,
+            JointType.LeftAnkleRoll,
+            JointType.RightHipPitch,
+            JointType.RightHipRoll,
+            JointType.RightHipYaw,
+            JointType.RightKnee,
+            JointType.RightAnklePitch,
+            JointType.RightAnkleRoll
         )
 
     @staticmethod
