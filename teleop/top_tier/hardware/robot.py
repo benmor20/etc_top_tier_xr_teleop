@@ -2,11 +2,10 @@ import math
 import threading
 import time
 from enum import Enum, auto
-from typing import Generator
+from typing import Generator, override, Callable
 
 import numpy as np
-from unitree_sdk2py.core.channel import ChannelSubscriber, ChannelPublisher
-from unitree_sdk2py.idl import unitree_hg_msg_dds__LowCmd_
+from unitree_sdk2py.idl import unitree_hg_msg_dds__LowCmd_, unitree_hg_msg_dds__LowState_
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_, LowCmd_
 from unitree_sdk2py.utils.crc import CRC
 
@@ -16,6 +15,8 @@ from top_tier.hardware.joint import Joint, JointType
 from top_tier.general.constants import NETWORK_INTERFACE, CONTROL_DT, G1_ARM_SDK_WEIGHT_MOTOR_IDX
 from top_tier.general.exceptions import IllegalRobotStateException, IllegalJointCommandException, UnknownRobotException
 from top_tier.general.repeated_event import RepeatMode
+
+from teleop.top_tier.hardware.hardware_device import HardwareDevice
 
 _G1_JOINTS = {
     # Left arm
@@ -131,41 +132,16 @@ class RobotFSMState(Enum):
     R1Walking = 811
     R1Balancing = 816
 
-
-class ControlMode(Enum):
-    """
-    Control of the arms is dictated by the Unitree remote
-    """
-    HighLevel = auto()
-
-    """
-    Takes in a set of waypoints, and the robot will interpolate between them.
-    Allows for sparse control
-    """
-    Waypoints = auto()
-
-    """
-    Set a target that the robot will move to (subject to the max velocity).
-    Allows for smoother control, but only if continuous data is provided
-    """
-    TrackTarget = auto()
-
-    """
-    Allows setting of waypoints, but any joints not set by the waypoint will follow the given target
-    Still requires continuous data, but allows for presets
-    """
-    Mixed = auto()
-
     @property
-    def is_low_level(self) -> bool:
+    def can_control_arms(self) -> bool:
         """
         Returns:
-            Whether this control mode is low-level control
+            True if this state allows for control of the upper body
         """
-        return self in (ControlMode.Waypoints, ControlMode.TrackTarget)
+        return self in (RobotFSMState.G1Walking, RobotFSMState.R1Walking, RobotFSMState.R1Balancing)
 
 
-class Robot:
+class Robot(HardwareDevice[RobotType, LowState_, LowCmd_]):
     """
     Base class for all types of robots
     """
@@ -178,48 +154,59 @@ class Robot:
         Args:
             robot_type: the type of robot this instance represents
         """
-        self._robot_type = robot_type
+        super().__init__(robot_type, "rt/lowstate", "rt/arm_sdk")
 
         self._loco_client = G1LocoClient() if robot_type == RobotType.G1 else R1LocoClient()
         self._loco_client.SetTimeout(1.0)
-
-        self._joints = self._robot_type.get_joint_map()
         self._robot_fsm_state = RobotFSMState.ZeroTorque
-        self._control_mode = ControlMode.HighLevel
-
-        self._state_sub = ChannelSubscriber(
-            "rt/lowstate",
-            LowState_,
-        )
-        self._last_lowstate_call_time = -1.
-        self._state_update_event = RepeatedEvent(CONTROL_DT, RepeatMode.START_TO_START, self._update_internal_state)
-
-        self._arm_pub = ChannelPublisher(
-            "rt/arm_sdk",
-            LowCmd_,
-        )
-        self._arm_cmd = unitree_hg_msg_dds__LowCmd_()
         self._crc = CRC()
-        self._arm_cmd_lock = threading.Lock()
 
-        self._current_arm_motion_gen: Generator[None, None, None] | None = None
-        self._waypoint_joints: set[JointType] = set()
-        self._current_motion_num = 0
-        self._max_vel = 50.
+    # ABSTRACT METHODS ----------------------------------------------------------------------------
 
-        self._target_pose: dict[JointType, float] = {}
-        self._target_kff: dict[JointType, float] = {}
+    def _get_joint_map(self, device_type: RobotType) -> dict[JointType, Joint]:
+        """
+        Construct a mapping of joint types to the joints they represent for this device
 
+        Args:
+            device_type: the type of device this is
 
-    # MISC PROPERTIES -----------------------------------------------------------------------------
+        Returns:
+            a dict mapping every joint type on this device to its corresponding joint
+        """
+        return device_type.get_joint_map()
 
     @property
-    def robot_type(self) -> RobotType:
+    def _state_type(self) -> type[LowState_]:
+        return LowState_
+
+    @property
+    def _cmd_type(self) -> type[LowCmd_]:
+        return LowCmd_
+
+    @property
+    def _state_default_factory(self) -> Callable[[], LowState_]:
+        return unitree_hg_msg_dds__LowState_
+
+    @property
+    def _cmd_default_factory(self) -> Callable[[], LowCmd_]:
+        return unitree_hg_msg_dds__LowCmd_
+
+    @override
+    def is_joint_controlled(self, joint_type: JointType) -> bool:
         """
+        Determines if a joint is allowed to be controlled by this robot
+
+        This is true when the robot has the joint and the joint is a upper body joint
+
+        Args:
+            joint_type: the joint to check
+
         Returns:
-            the type of robot this object represents
+            a bool, whether the joint can be controlled by this device
         """
-        return self._robot_type
+        return super().is_joint_controlled(joint_type) and joint_type.is_upper_body
+
+    # MISC PROPERTIES -----------------------------------------------------------------------------
 
     @property
     def robot_fsm_state(self) -> RobotFSMState:
@@ -238,69 +225,6 @@ class Robot:
         return self._loco_client
 
     # JOINTS --------------------------------------------------------------------------------------
-
-    @property
-    def joints(self) -> dict[JointType, Joint]:
-        """
-        Returns:
-            a mapping of each JointType on this robot to the corresponding Joint
-        """
-        return self._joints
-
-    @property
-    def joint_set(self) -> set[Joint]:
-        """
-        Returns:
-            the set of joints on this robot
-        """
-        return set(self.joints.values())
-
-    def has_joint(self, joint_type: JointType) -> bool:
-        """
-        Determine if this robot has the given joint type
-
-        Args:
-            joint_type: the type of joint to check
-
-        Returns:
-            True if this robot has the given joint type, False otherwise
-        """
-        return joint_type in self.joints
-
-    def get_joint(self, joint_type: JointType) -> Joint:
-        """
-        Get the joint corresponding to the given joint type
-
-        Args:
-            joint_type: the type of joint to get
-
-        Returns:
-            the joint of the given joint type
-
-        Raises:
-            KeyError: if the given joint type is not present on this Robot
-        """
-        return self._joints[joint_type]
-
-    def get_current_joint_positions(self) -> dict[JointType, float]:
-        """
-        Returns:
-            a mapping of each JointType on this robot and its corresponding joint position
-        """
-        joint_poses = {}
-        for joint in self.joint_set:
-            joint_poses[joint.joint_type] = joint.pos
-        return joint_poses
-
-    def get_current_joint_velocities(self) -> dict[JointType, float]:
-        """
-        Returns:
-            a mapping of each JointType on this robot and its corresponding joint position
-        """
-        joint_vels = {}
-        for joint in self.joint_set:
-            joint_vels[joint.joint_type] = joint.vel
-        return joint_vels
 
     def get_upper_body_joint_positions(self) -> dict[JointType, float]:
         """
@@ -322,11 +246,11 @@ class Robot:
             the current arm sdk weight - 0 if entirely high-level control, 1 if entirely low-level control, or any value
                 in between if it's a blend
         """
-        if self.robot_type == RobotType.G1:
-            return self._arm_cmd.motor_cmd[G1_ARM_SDK_WEIGHT_MOTOR_IDX].q
-        if self.robot_type == RobotType.R1:
-            return self._arm_cmd.mode_pr
-        raise UnknownRobotException(f"Do not know how to get arm sdk weight from {self.robot_type}")
+        if self.device_type == RobotType.G1:
+            return self._current_cmd.motor_cmd[G1_ARM_SDK_WEIGHT_MOTOR_IDX].q
+        if self.device_type == RobotType.R1:
+            return self._current_cmd.mode_pr / 100.
+        raise UnknownRobotException(f"Do not know how to get arm sdk weight from {self.device_type}")
 
 
     # INITIALIZATION ------------------------------------------------------------------------------
@@ -336,37 +260,21 @@ class Robot:
         Initialize this robot
         """
         self._loco_client.Init()
-        self._state_sub.Init()
-        self._arm_pub.Init()
-        self._state_update_event.start()
+        super().initialize()
 
-    def set_control_mode(self, control_mode: ControlMode) -> None:
+    @override
+    def activate_control(self) -> None:
         """
         Change the control mode for the upper half of the body
 
-        See ControlMode for details
-
-        Note that this function will block if switching between high and low level control
-
-        Args:
-            control_mode: the mode to set
+        Note that this function will block if switching from low to high level control
         """
-        if self._control_mode == control_mode:
-            return
-        old_control_mode = self._control_mode
-        self._control_mode = control_mode
-        if not old_control_mode.is_low_level and control_mode.is_low_level:
-            # enable low level control
+        super().activate_control()
+        with self._cmd_lock:
+            self._reset_cmd()
             # can go straight to 100 if we're moving the motors to their current position
-            self._fill_arm_cmd(self.get_upper_body_joint_positions())
-            self._send_arm_command()
-        elif old_control_mode.is_low_level and not control_mode.is_low_level:
-            self.release_low_level_arm_control()
-
-        self._current_arm_motion_gen = None
-        self._waypoint_joints = set()
-        self._target_pose = {}
-        self._target_kff = {}
+            self._fill_cmd(self.get_upper_body_joint_positions())
+            self._send_command()
 
     def set_fsm_state(self, target_state: RobotFSMState) -> bool:
         """
@@ -391,7 +299,7 @@ class Robot:
         Absolutely ridiculous that this needs to be software but at least it'll exist
         """
         self.loco_client.SetFsmId(RobotFSMState.Damping.value)
-        self._state_update_event.stop()
+        super().shutdown()
 
     def shutdown(self, enter_damping: bool = True) -> None:
         """
@@ -400,360 +308,67 @@ class Robot:
         Args:
             enter_damping: if True, will move the robot to damping mode
         """
-        if self._control_mode.is_low_level:
-            self.release_low_level_arm_control()
+        super().shutdown()
+        if self.is_active:
+            self.deactivate_control()
         if enter_damping:
-            self.e_stop()
-        else:
-            self._state_update_event.stop()
+            self.loco_client.SetFsmId(RobotFSMState.Damping.value)
 
-    def release_low_level_arm_control(self, duration: float = 2.) -> None:
+    @override
+    def deactivate_control(self, duration: float = 2.) -> None:
         """
         Slowly ramps down the relevant value so the upper body will no longer listen to low level control
 
         Args:
             duration: how long it should take to release the arm control (secs)
         """
-        self._control_mode = ControlMode.HighLevel
-        steps = max(1, int(duration / CONTROL_DT))
-        for weight in np.linspace(self._get_current_arm_sdk_weight(), 0.0, num=steps + 1):
-            self._set_arm_sdk_weight(weight)
-            self._send_arm_command()
-        self._set_arm_sdk_weight(0.0)
-
+        super().deactivate_control()
+        with self._cmd_lock:
+            steps = max(1, int(duration / CONTROL_DT))
+            for weight in np.linspace(self._get_current_arm_sdk_weight(), 0.0, num=steps + 1):
+                self._set_arm_sdk_weight(weight)
+                self._send_command()
+            self._set_arm_sdk_weight(0.0)
 
     # UPDATE CYCLE --------------------------------------------------------------------------------
 
-    def _update_internal_state(self) -> None:
-        """
-        Update all tracked internal states of this robot
-
-        This function is called on a timer every CONTROL_DT seconds.
-        To be thread-safe, nothing else should update these variables - only read them
-        """
-        state = self._get_low_level_state()
-        self._arm_cmd.mode_machine = state.mode_machine
-        self._update_joint_states(state)
+    @override
+    def _update(self) -> None:
         fsm_id = self._loco_client.GetFsmId()[1]
-
         try:
             self._robot_fsm_state = RobotFSMState(fsm_id)
         except ValueError:
             self._robot_fsm_state = RobotFSMState.Unknown
 
-        self._update_arms()
-
-    def _get_low_level_state(self) -> LowState_:
-        """
-        Returns:
-            the current low-level robot state
-        """
-        state: LowState_ | None = self._state_sub.Read()
-        while state is None:
-            time.sleep(CONTROL_DT)
-            state = self._state_sub.Read()
-
-        self._last_lowstate_call_time = time.time()
-        return state
-
-    def _update_joint_states(self, state: LowState_) -> None:
-        """
-        Update the internal information for all joints
-
-        Args:
-            state: the result of the call to rt/lowstate
-        """
-        for joint in self._joints.values():
-            joint.update_state(state)
-
+        super()._update()
 
     # ARM COMMANDS --------------------------------------------------------------------------------
 
-    def _update_arms(self) -> None:
+    @override
+    def _verify_pos(self, pos: dict[JointType, float]) -> None:
         """
-        Update the position of the arms, depending on the current control mode
-        """
-        with self._arm_cmd_lock:
-            if self._control_mode == ControlMode.Waypoints:
-                self._update_arms_waypoints()
-            elif self._control_mode == ControlMode.TrackTarget:
-                self._update_arms_track_target()
-            elif self._control_mode == ControlMode.Mixed:
-                self._update_arms_mixed()
-
-    def set_max_velocity(self, max_vel: float) -> None:
-        """
-        Set the max velocity for the TARGET TRACKING ONLY
-
-        A nonpositive maximum velocity means no speed limit - joints will always move instantly to their target/waypoint
+        Run all error handling on the current pos, verifying it is correct and throwing an error if it is not
 
         Args:
-            max_vel: the maximum angular velocity (rad/s) a joint can move at
-        """
-        if max_vel <= 0:
-            max_vel = -1.  # just for consistency
-        self._max_vel = max_vel
-
-    def move_to_waypoints(self, waypoints: list[dict[JointType, float]] | dict[JointType, float], max_vel: float | None = None, block: bool = True, override: bool = True) -> bool:
-        """
-        Command the upper body to move through a set of waypoints
-
-        Only works when the control mode is Waypoints or Mixed
-        All given joints must be in the upper body, and all given positions must be in range for that joint.
-        TODO this func does not set a limit on acceleration
-        The speed of each joint will be determined so that they all arrive at the same time, and the fastest
-        joint is moving at max_vel.
-        Any joints not in the given dict will not be moved
-
-        Args:
-            waypoints: a list of waypoints for the robot to hit, where each waypoint is a mapping of upper body
-                joints to their target positions (radians). Alternatively, a single waypoint represented like this
-            max_vel: an override for the maximum velocity. if None, uses self.max_vel. Otherwise, sets the max velocity
-                for this motion (rad/s)
-            block: if True, this function will not exit until the movement is complete. Otherwise, the movement will run
-                in the background
-            override: what to do if there is a motion already running. If True, will stop it and start executing this
-                motion instead. Otherwise, will discard this motion
-
-        Returns:
-            True if this motion successfully executed, False if it did not. False can occur if override is False and a
-            motion is already running, or, if block, False can occur if this motion was overridden by something else. If
-            not block, this function will assume that the motion completes, and returns True (regardless of if a future
-            call overrides it).
+            pos: the joint positions to verify
 
         Raises:
             IllegalRobotStateException: if the robot is not in an FSM state that is able to take joint commands, or if
-                the current control mode is not Waypoints
-            IllegalRobotStateException: if a lower-body joint position is present in waypoints
+                low level joint commands have not been enabled
+            IllegalJointCommandException: if a lower-body joint position is present in pose
             JointOutOfBoundsException: if any pos is out of range for its corresponding joint
         """
-        if isinstance(waypoints, dict):
-            waypoints = [waypoints]
-
-        for wp in waypoints:
-            self._verify_poses(wp, {ControlMode.Waypoints, ControlMode.Mixed})
-
-        if self.is_arm_command_running and not override:
-            return False
-
-        with self._arm_cmd_lock:
-            self._current_motion_num += 1
-            this_motion_num = self._current_motion_num
-            dense_waypoints = self._create_dense_waypoints(waypoints, self._max_vel if max_vel is None else max_vel)
-            self._current_arm_motion_gen = self._set_arm_waypoint_gen(dense_waypoints, send_command=self._control_mode == ControlMode.Waypoints)
-
-        if block:  # the motion will be executed by the update loop, just wait for it to be done
-            while self.is_arm_command_running:
-                time.sleep(CONTROL_DT)
-                # dont think we need arm_cmd_lock here, since we're only checking the value (i.e. only need to reference
-                # it in memory once) but if anything more complex happens here, should lock
-                if self._current_motion_num != this_motion_num:  # has been overridden
-                    return False
-            with self._arm_cmd_lock:
-                self._current_arm_motion_gen = None
-        return True
-
-    def _update_arms_waypoints(self) -> None:
-        """
-        Update the arm positions when we are in Waypoint mode
-        """
-        if not self.is_arm_command_running:
-            return
-        try:
-            next(self._current_arm_motion_gen)
-        except StopIteration:
-            self._current_arm_motion_gen = None
-
-    @property
-    def is_arm_command_running(self) -> bool:
-        """
-        Returns:
-            True if there is an arm command currently running, False otherwise
-        """
-        return self._current_arm_motion_gen is not None
-
-    def _set_arm_waypoint_gen(self, waypoints: list[dict[JointType, float]], send_command: bool = True) -> Generator[None, None, None]:
-        """
-        Run through a set of waypoints, returning control of the current thread after each call
-
-        Expects that this function will be called every CONTROL_DT seconds
-
-        Args:
-            waypoints: the list of waypoints to travel through
-            send_command: whether to actually send the command
-        """
-        for waypoint in waypoints:
-            self._waypoint_joints = set(waypoint.keys())
-            self._fill_arm_cmd(waypoint)
-            yield None
-            if send_command:
-                self._send_arm_command(False)
-
-    def _create_dense_waypoints(self, sparse_waypoints: list[dict[JointType, float]], max_vel: float) -> list[dict[JointType, float]]:
-        """
-        Fills in a list of waypoints with a dense plan, so that when each waypoint is moved to at a rate of CONTROL_DT,
-        the motions will be subject to self._max_vel
-
-        Args:
-            sparse_waypoints: a list of waypoints for the robot to hit, where each waypoint is a mapping of upper body
-                joints to their target positions (radians)
-            max_vel: the maximum angular velocity any joint may move at for this motion
-
-        Returns:
-            a list of waypoints for the robot to move to every CONTROL_DT secs, where each waypoint is represented as
-                a mapping from joint type to its target position (rad) for that waypoint
-        """
-        if self._max_vel <= 0:
-            return sparse_waypoints
-
-        starting_pose = self.get_current_joint_positions()
-        dense_waypoints = []
-        for waypoint in sparse_waypoints:
-            max_delta = max(
-                abs(target_pos - starting_pose[joint_type])
-                for joint_type, target_pos in waypoint.items()
-            )
-            duration = max_delta / max_vel
-            num_steps = max(1, math.ceil(duration / CONTROL_DT))
-
-            dense_waypoints.extend([
-                {
-                    joint_type: starting_pose[joint_type] + (target_pos - starting_pose[joint_type]) * (
-                                step / num_steps)
-                    for joint_type, target_pos in waypoint.items()
-                }
-                for step in range(1, num_steps + 1)
-            ])
-            starting_pose = waypoint
-
-        return dense_waypoints
-
-    def set_target_position(self, target_pose: dict[JointType, float | tuple[float, float]]) -> None:
-        """
-        Update the target position for TrackTarget control mode
-
-        Each specified joint can also optionally include a feedforward value for that joint's PID controller.
-
-        It is expected that this will be called many times a second, frequent enough that the motors do not have to
-        stop and start over and over
-
-        Args:
-            target_pose: a mapping of joint types to their corresponding target position (rad). Each joint may instead
-                map to a tuple of floats, in which case the first will be target position (rad) and the second will be
-                the target PID feedforward value
-
-        Raises:
-            IllegalRobotStateException: if the robot is not in an FSM state that is able to take joint commands, or if
-                the current control mode is not TrackTarget
-            IllegalRobotStateException: if a lower-body joint position is present in pose
-            JointOutOfBoundsException: if any pos is out of range for its corresponding joint
-        """
-        new_pose = {}
-        new_kff = {}
-        for joint_type, pos_and_kff in target_pose.items():
-            if isinstance(pos_and_kff, tuple):
-                pos, kff = pos_and_kff
-            else:
-                pos = pos_and_kff
-                kff = 0.
-            new_pose[joint_type] = pos
-            new_kff[joint_type] = kff
-
-        self._verify_poses(new_pose, {ControlMode.TrackTarget, ControlMode.Mixed})
-
-        with self._arm_cmd_lock:
-            self._target_pose = new_pose
-            self._target_kff = new_kff
-
-    def _clipped_pose(self) -> dict[JointType, float]:
-        """
-        Clip the target pose so that it obeys max_vel when called at an interval of CONTROL_DT
-
-        Additionally, removes any joints from target pose that are currently being tracked by a waypoint.
-        """
-        current_pos = self.get_upper_body_joint_positions()
-        target = current_pos if len(self._target_pose) == 0 else self._target_pose.copy()
-        target = {j: t for j, t in target.items() if j not in self._waypoint_joints}
-        if len(target) == 0:
-            return {}
-        delta_pos = {j: t - current_pos[j] for j, t in target.items()}
-        max_dist = max(abs(d) for d in delta_pos.values())
-        scale_factor = 0. if np.isclose(max_dist, 0.) else min(self._max_vel * CONTROL_DT / max_dist, 1.)
-        return {j: current_pos[j] + d * scale_factor for j, d in delta_pos.items()}
-
-    def _update_arms_track_target(self) -> None:
-        """
-        Update the arm positions when we are in TrackTarget mode
-        """
-        self._waypoint_joints = set()
-        clipped_pos = self._clipped_pose()
-        self._fill_arm_cmd(clipped_pos, self._target_kff)
-        self._send_arm_command(False)
-
-    def _update_arms_mixed(self) -> None:
-        """
-        Update the arm positions when we are in Mixed mode
-        """
-        if self.is_arm_command_running:
-            try:
-                next(self._current_arm_motion_gen)
-            except StopIteration:
-                self._waypoint_joints = set()
-                self._current_arm_motion_gen = None
-
-        clipped_pos = self._clipped_pose()
-        self._fill_arm_cmd(clipped_pos, self._target_kff)
-        self._send_arm_command(False)
-
-    def _verify_poses(self, pose: dict[JointType, float], ideal_control_modes: set[ControlMode]) -> None:
-        """
-        Run all error handling on the current poses and control mode, verifying they are correct and throwing an error
-        if they are not
-
-        Args:
-            pose: the joint positions to verify
-            ideal_control_modes: the allowable control modes we can be in
-
-        Raises:
-            IllegalRobotStateException: if the robot is not in an FSM state that is able to take joint commands, or if
-                the current control mode is not ideal_control_mode
-            IllegalRobotStateException: if a lower-body joint position is present in pose
-            JointOutOfBoundsException: if any pos is out of range for its corresponding joint
-        """
-        if self._robot_fsm_state not in (RobotFSMState.G1Walking, RobotFSMState.R1Walking, RobotFSMState.R1Balancing):
+        super()._verify_pos(pos)
+        if not self._robot_fsm_state.can_control_arms:
             raise IllegalRobotStateException(f"Cannot control the arms when robot is in {self._robot_fsm_state}")
-        if self._control_mode not in ideal_control_modes:
-            raise IllegalRobotStateException(f"Cannot do this operation while in {self._control_mode}")
-        for joint_type, target_pos in pose.items():
-            if not joint_type.is_upper_body:
-                raise IllegalJointCommandException(f"Cannot set the position of {joint_type.name}")
-            self.joints[joint_type].assert_pos_in_range(target_pos)
 
-    def _reset_arm_cmd(self) -> None:
+    @override
+    def _reset_cmd(self) -> None:
         """
         Resets the arm command, so it is ready for a new command to be filled in
         """
         self._set_arm_sdk_weight(1.)
-        for joint_idx in range(len(self._arm_cmd.motor_cmd)):
-            self._arm_cmd.motor_cmd[joint_idx].mode = 0  # by default ignore all joints - will override the joints we're using
-            self._arm_cmd.motor_cmd[joint_idx].dq = 0.
-            self._arm_cmd.motor_cmd[joint_idx].tau = 0.
-
-    def _fill_arm_cmd(self, pose: dict[JointType, float], kffs: dict[JointType, float] | None = None) -> None:
-        """
-        Fill in the data for an arm command, matching the given pose and kff values
-
-        Args:
-            pose: a mapping of joint type to the position to set that joint, for each joint to set
-            kffs: a mapping of joint type to its corresponding feedforward value. Will only apply if the joint is
-                present in pose
-        """
-        self._reset_arm_cmd()
-        if kffs is None:
-            kffs = {}
-        for joint_type, pos in pose.items():
-            kff = kffs.get(joint_type, 0.)
-            self._joints[joint_type].add_to_cmd(self._arm_cmd, pos, kff=kff)
+        super()._reset_cmd()
 
     def _set_arm_sdk_weight(self, weight: float) -> None:
         """
@@ -763,14 +378,15 @@ class Robot:
             weight: what percentage (0-1) the robot should listen to the low-level command. 1 is entirely low-level,
                 0 is entirely high-level
         """
-        if self.robot_type == RobotType.G1:
-            self._arm_cmd.motor_cmd[G1_ARM_SDK_WEIGHT_MOTOR_IDX].q = weight
-        elif self.robot_type == RobotType.R1:
-            self._arm_cmd.mode_pr = int(np.clip(weight, 0.0, 1.0) * 100.0)
+        if self.device_type == RobotType.G1:
+            self._current_cmd.motor_cmd[G1_ARM_SDK_WEIGHT_MOTOR_IDX].q = weight
+        elif self.device_type == RobotType.R1:
+            self._current_cmd.mode_pr = int(np.clip(weight, 0.0, 1.0) * 100.0)
         else:
-            raise UnknownRobotException(f"Do not know how to set arm sdk weight on {self.robot_type}")
+            raise UnknownRobotException(f"Do not know how to set arm sdk weight on {self.device_type}")
 
-    def _send_arm_command(self, block_for_control_dt: bool = True) -> None:
+    @override
+    def _send_command(self, block_for_control_dt: bool = True) -> None:
         """
         Send the stored arm command
 
@@ -779,7 +395,5 @@ class Robot:
         Args:
             block_for_control_dt: if True, will sleep the current thread for CONTROL_DT secs after the command is sent
         """
-        self._arm_cmd.crc = self._crc.Crc(self._arm_cmd)
-        self._arm_pub.Write(self._arm_cmd)
-        if block_for_control_dt:
-            time.sleep(CONTROL_DT)
+        self._current_cmd.crc = self._crc.Crc(self._current_cmd)
+        super()._send_command(block_for_control_dt)

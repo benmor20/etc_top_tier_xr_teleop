@@ -17,7 +17,7 @@ def main():
     robot.initialize()
     print("Initialized")
     time.sleep(1.)
-    robot.enable_low_level_arm_control()
+    robot.activate_control()
 
     robot.loco_client.SetVelocity(0.2, 0., 0., 3.)
     robot.move_to_waypoints(MOTION_DATA_DICT[XRControllerButton.X], block=False)

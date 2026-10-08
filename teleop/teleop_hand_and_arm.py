@@ -112,7 +112,7 @@ def get_current_dual_arm_q(robot: Robot) -> np.ndarray:
     Returns:
         the positions of the arm joints (L then R) as a vector, with the order defined by the relevant Unitree enum
     """
-    unitree_joint_type = G1_29_JointArmIndex if robot.robot_type == RobotType.G1 else R1_A5_JointArmIndex
+    unitree_joint_type = G1_29_JointArmIndex if robot.device_type == RobotType.G1 else R1_A5_JointArmIndex
     joint_order = [JointType.from_unitree(j) for j in unitree_joint_type]
     current_q = robot.get_current_joint_positions()
     return np.array([current_q[j] for j in joint_order])
@@ -128,7 +128,7 @@ def get_current_dual_arm_dq(robot: Robot) -> np.ndarray:
     Returns:
         the velocities of the arm joints (L then R) as a vector, with the order defined by the relevant Unitree enum
     """
-    unitree_joint_type = G1_29_JointArmIndex if robot.robot_type == RobotType.G1 else R1_A5_JointArmIndex
+    unitree_joint_type = G1_29_JointArmIndex if robot.device_type == RobotType.G1 else R1_A5_JointArmIndex
     joint_order = [JointType.from_unitree(j) for j in unitree_joint_type]
     current_dq = robot.get_current_joint_velocities()
     return np.array([current_dq[j] for j in joint_order])
@@ -291,10 +291,11 @@ if __name__ == '__main__':
 
         # extra setup for top tier
         controller_data = XRControllers(tv_wrapper)
-        robot = Robot(robot_type, True)
+        robot = Robot(robot_type)
         robot.initialize()
         time.sleep(0.5)
-        robot.set_max_velocity(50.)
+        robot.set_max_tracking_velocity(50.)
+        robot.set_max_waypoint_velocity(3.)
 
         logger_mp.info("----------------------------------------------------------------")
         logger_mp.info("🟢  Press [r] to start syncing the robot with your movements.")
@@ -311,7 +312,7 @@ if __name__ == '__main__':
 
         logger_mp.info("---------------------🚀start Tracking🚀-------------------------")
 
-        robot.set_control_mode(ControlMode.Mixed)
+        robot.activate_control()
         head_img = None
         left_wrist_img = None
         right_wrist_img = None
@@ -370,7 +371,7 @@ if __name__ == '__main__':
                     robot.move_to_waypoints(motion, max_vel=3., block=False)
             # do teleop
             # any joints being controlled by a motion will not move here
-            pose = convert_to_joint_map(sol_q, sol_tauff, robot.robot_type)
+            pose = convert_to_joint_map(sol_q, sol_tauff, robot.device_type)
             robot.set_target_position(pose)
 
             current_time = time.time()

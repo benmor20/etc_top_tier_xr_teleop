@@ -1,8 +1,10 @@
 import re
 from enum import IntEnum, auto
-from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_, LowCmd_
 
 from top_tier.general.exceptions import JointOutOfBoundsException
+
+from teleop.top_tier.hardware.msg_types import DeviceCmd, DeviceState
+
 
 class JointType(IntEnum):
     # Head
@@ -211,6 +213,21 @@ class Joint:
         self._dq = 0.
         self._ddq = 0.
 
+    def __copy__(self) -> 'Joint':
+        """
+        Return:
+            a copy of this joint
+        """
+        joint = Joint(self.joint_type, self.joint_id, self.lower_limit, self.upper_limit, self._Kp, self._Kd)
+        joint._Kff = self._Kff
+        joint._q = self.pos
+        joint._dq = self.vel
+        joint._ddq = self.acc
+        return joint
+
+    def __deepcopy__(self, memodict={}) -> 'Joint':
+        return self.__copy__()
+
     @property
     def joint_type(self) -> JointType:
         """
@@ -308,19 +325,19 @@ class Joint:
         if not self.is_pos_in_range(pos):
             raise JointOutOfBoundsException(f"Joint {self.joint_type} can only move between {self.lower_limit} and {self.upper_limit}, but was told to go to {pos}")
 
-    def update_state(self, state: LowState_) -> None:
+    def update_state(self, state: DeviceState) -> None:
         """
         Update the internal state of this joint
 
         Args:
-            state: the result of the call to rt/lowstate
+            state: the state of the device this joint is a part of.
         """
         joint_state = state.motor_state[self.joint_id]
         self._q = joint_state.q
         self._dq = joint_state.dq
         self._ddq = joint_state.ddq
 
-    def add_to_cmd(self, cmd: LowCmd_, target_pos: float, target_vel: float = 0., kff: float = 0.) -> None:
+    def add_to_cmd(self, cmd: DeviceCmd, target_pos: float, target_vel: float = 0., kff: float = 0.) -> None:
         """
         Add this joint's data to the low-level command, telling it to move to target_pos
 
@@ -340,4 +357,19 @@ class Joint:
         cmd.motor_cmd[self.joint_id].kd = self.Kd
         cmd.motor_cmd[self.joint_id].q = target_pos
         cmd.motor_cmd[self.joint_id].dq = target_vel
+        cmd.motor_cmd[self.joint_id].tau = kff
+
+    def add_to_cmd_slack(self, cmd: DeviceCmd, kff: float = 0.) -> None:
+        """
+        Add this joint's data to the low level command, telling it to go slack
+
+        Args:
+            cmd: the low-level command to update
+            kff: the PID feedforward value for this joint (for if it should try to fight gravity)
+        """
+        cmd.motor_cmd[self.joint_id].mode = 1
+        cmd.motor_cmd[self.joint_id].kp = 0.
+        cmd.motor_cmd[self.joint_id].kd = self.Kd
+        cmd.motor_cmd[self.joint_id].q = 0.
+        cmd.motor_cmd[self.joint_id].dq = 0.
         cmd.motor_cmd[self.joint_id].tau = kff
