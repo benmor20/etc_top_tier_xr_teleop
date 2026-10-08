@@ -225,7 +225,7 @@ class HardwareDevice(ABC, Generic[DEVICE_T, STATE_T, CMD_T]):
         self._active_control = True
         try:
             self._position_to_hold = self.get_controlled_joint_positions()
-            self.set_target_position(self._position_to_hold)
+            self.set_target_position({})
         except:
             self._active_control = False
             raise
