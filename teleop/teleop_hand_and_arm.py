@@ -291,7 +291,7 @@ if __name__ == '__main__':
 
         # extra setup for top tier
         controller_data = XRControllers(tv_wrapper)
-        robot = Robot(robot_type, True)
+        robot = Robot(robot_type)
         robot.initialize()
         time.sleep(0.5)
         robot.set_max_velocity(50.)
