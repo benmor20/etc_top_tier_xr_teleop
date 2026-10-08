@@ -3,7 +3,7 @@ import math
 import threading
 import time
 from abc import abstractmethod, ABC
-from typing import Callable, Generator
+from typing import Callable, Generator, TypeVar, Generic
 
 import numpy as np
 from unitree_sdk2py.core.channel import ChannelSubscriber, ChannelPublisher
@@ -15,7 +15,12 @@ from teleop.top_tier.hardware.joint import JointType, Joint
 from teleop.top_tier.hardware.msg_types import DeviceState, DeviceCmd
 
 
-class HardwareDevice[DEVICE_T, STATE_T: DeviceState, CMD_T: DeviceCmd](ABC):
+DEVICE_T = TypeVar("DEVICE_T")
+STATE_T = TypeVar("STATE_T", bound=DeviceState)
+CMD_T = TypeVar("CMD_T", bound=DeviceCmd)
+
+
+class HardwareDevice(ABC, Generic[DEVICE_T, STATE_T, CMD_T]):
     def __init__(self, device_type: DEVICE_T, state_name: str, cmd_name: str):
         self._device_type = device_type
 

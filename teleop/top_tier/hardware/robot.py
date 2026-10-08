@@ -2,9 +2,10 @@ import math
 import threading
 import time
 from enum import Enum, auto
-from typing import Generator, override, Callable
+from typing import Callable
 
 import numpy as np
+from typing_extensions import override
 from unitree_sdk2py.idl import unitree_hg_msg_dds__LowCmd_, unitree_hg_msg_dds__LowState_
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_, LowCmd_
 from unitree_sdk2py.utils.crc import CRC
