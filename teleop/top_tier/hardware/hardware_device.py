@@ -489,8 +489,8 @@ class HardwareDevice(ABC, Generic[DEVICE_T, STATE_T, CMD_T]):
         current_pos = self.get_controlled_joint_positions()
         target = {**self._position_to_hold, **self._target_pose}
         target = {j: t for j, t in target.items() if j not in self._waypoint_joints}
-        if len(target) == 0:
-            return {}
+        if len(target) == 0 or all(pos is None for pos in target.values()):
+            return target
         delta_pos = {j: (None if t is None else t - current_pos[j]) for j, t in target.items()}
         max_dist = max(abs(d) for d in delta_pos.values() if d is not None)
         scale_factor = 0. if np.isclose(max_dist, 0.) else min(self._tracking_max_vel * CONTROL_DT / max_dist, 1.)

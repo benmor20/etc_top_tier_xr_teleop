@@ -4,6 +4,7 @@ import time
 
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
@@ -12,6 +13,7 @@ from top_tier.hardware.robot import Robot, RobotType
 from top_tier.general.constants import NETWORK_INTERFACE
 from top_tier.general.motion_data import MOTION_DATA_DICT
 from top_tier.general.xr_controllers import XRControllerButton
+from top_tier.hardware.joint import JointType
 
 
 def main():
@@ -22,8 +24,7 @@ def main():
     time.sleep(1.)
     robot.activate_control()
 
-    print("Queuing motion")
-    robot.move_to_waypoints(MOTION_DATA_DICT[XRControllerButton.X], block=True)
+    robot.set_target_position({jt: None for jt in JointType if robot.is_joint_controlled(jt) and not jt == JointType.WaistYaw})
 
     time.sleep(10.)
     robot.shutdown(False)
