@@ -368,7 +368,7 @@ if __name__ == '__main__':
             # start an arm motion on button press
             for button, motion in MOTION_DATA_DICT.items():
                 if controller_data.was_button_just_pressed(button):
-                    robot.move_to_waypoints(motion, max_vel=3., block=False)
+                    robot.move_to_waypoints(motion, block=False)
             # do teleop
             # any joints being controlled by a motion will not move here
             pose = convert_to_joint_map(sol_q, sol_tauff, robot.device_type)
