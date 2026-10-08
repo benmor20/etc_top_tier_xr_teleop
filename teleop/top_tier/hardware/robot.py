@@ -241,19 +241,6 @@ class Robot(HardwareDevice[RobotType, LowState_, LowCmd_]):
         """
         return {jt: p for jt, p in self.get_current_joint_positions().items() if not jt.is_upper_body}
 
-    def _get_current_arm_sdk_weight(self) -> float:
-        """
-        Returns:
-            the current arm sdk weight - 0 if entirely high-level control, 1 if entirely low-level control, or any value
-                in between if it's a blend
-        """
-        if self.device_type == RobotType.G1:
-            return self._current_cmd.motor_cmd[G1_ARM_SDK_WEIGHT_MOTOR_IDX].q
-        if self.device_type == RobotType.R1:
-            return self._current_cmd.mode_pr / 100.
-        raise UnknownRobotException(f"Do not know how to get arm sdk weight from {self.device_type}")
-
-
     # INITIALIZATION ------------------------------------------------------------------------------
 
     def initialize(self) -> None:
@@ -368,8 +355,8 @@ class Robot(HardwareDevice[RobotType, LowState_, LowCmd_]):
         """
         Resets the arm command, so it is ready for a new command to be filled in
         """
-        self._set_arm_sdk_weight(1.)
         super()._reset_cmd()
+        self._set_arm_sdk_weight(1.)
 
     def _set_arm_sdk_weight(self, weight: float) -> None:
         """
@@ -379,12 +366,25 @@ class Robot(HardwareDevice[RobotType, LowState_, LowCmd_]):
             weight: what percentage (0-1) the robot should listen to the low-level command. 1 is entirely low-level,
                 0 is entirely high-level
         """
+        weight = np.clip(weight, 0.0, 1.0)
         if self.device_type == RobotType.G1:
             self._current_cmd.motor_cmd[G1_ARM_SDK_WEIGHT_MOTOR_IDX].q = weight
         elif self.device_type == RobotType.R1:
-            self._current_cmd.mode_pr = int(np.clip(weight, 0.0, 1.0) * 100.0)
+            self._current_cmd.mode_pr = int(weight * 100.0)
         else:
             raise UnknownRobotException(f"Do not know how to set arm sdk weight on {self.device_type}")
+
+    def _get_current_arm_sdk_weight(self) -> float:
+        """
+        Returns:
+            the current arm sdk weight - 0 if entirely high-level control, 1 if entirely low-level control, or any value
+                in between if it's a blend
+        """
+        if self.device_type == RobotType.G1:
+            return self._current_cmd.motor_cmd[G1_ARM_SDK_WEIGHT_MOTOR_IDX].q
+        if self.device_type == RobotType.R1:
+            return self._current_cmd.mode_pr / 100.
+        raise UnknownRobotException(f"Do not know how to get arm sdk weight from {self.device_type}")
 
     @override
     def _send_command(self, block_for_control_dt: bool = True) -> None:

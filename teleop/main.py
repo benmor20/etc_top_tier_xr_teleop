@@ -22,10 +22,9 @@ def main():
     time.sleep(1.)
     robot.activate_control()
 
+    print("Queuing motion")
     robot.move_to_waypoints(MOTION_DATA_DICT[XRControllerButton.X], block=True)
-    print("Queued motion")
 
-    time.sleep(10.)
     robot.shutdown(False)
 
 
