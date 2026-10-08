@@ -8,11 +8,11 @@ from typing import Callable, Generator, TypeVar, Generic
 import numpy as np
 from unitree_sdk2py.core.channel import ChannelSubscriber, ChannelPublisher
 
-from teleop.top_tier.general.constants import CONTROL_DT
-from teleop.top_tier.general.exceptions import IllegalJointCommandException, IllegalRobotStateException
-from teleop.top_tier.general.repeated_event import RepeatedEvent, RepeatMode
-from teleop.top_tier.hardware.joint import JointType, Joint
-from teleop.top_tier.hardware.msg_types import DeviceState, DeviceCmd
+from top_tier.general.constants import CONTROL_DT
+from top_tier.general.exceptions import IllegalJointCommandException, IllegalRobotStateException
+from top_tier.general.repeated_event import RepeatedEvent, RepeatMode
+from top_tier.hardware.joint import JointType, Joint
+from top_tier.hardware.msg_types import DeviceState, DeviceCmd
 
 
 DEVICE_T = TypeVar("DEVICE_T")

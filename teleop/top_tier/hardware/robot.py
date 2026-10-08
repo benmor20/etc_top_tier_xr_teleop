@@ -1,7 +1,4 @@
-import math
-import threading
-import time
-from enum import Enum, auto
+from enum import Enum
 from typing import Callable
 
 import numpy as np
@@ -10,14 +7,12 @@ from unitree_sdk2py.idl import unitree_hg_msg_dds__LowCmd_, unitree_hg_msg_dds__
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_, LowCmd_
 from unitree_sdk2py.utils.crc import CRC
 
-from top_tier.general.repeated_event import RepeatedEvent
 from top_tier.hardware.extensions import R1LocoClient, G1LocoClient
 from top_tier.hardware.joint import Joint, JointType
-from top_tier.general.constants import NETWORK_INTERFACE, CONTROL_DT, G1_ARM_SDK_WEIGHT_MOTOR_IDX
-from top_tier.general.exceptions import IllegalRobotStateException, IllegalJointCommandException, UnknownRobotException
-from top_tier.general.repeated_event import RepeatMode
+from top_tier.general.constants import CONTROL_DT, G1_ARM_SDK_WEIGHT_MOTOR_IDX
+from top_tier.general.exceptions import IllegalRobotStateException, UnknownRobotException
+from top_tier.hardware.hardware_device import HardwareDevice
 
-from teleop.top_tier.hardware.hardware_device import HardwareDevice
 
 _G1_JOINTS = {
     # Left arm

@@ -2,8 +2,7 @@ import re
 from enum import IntEnum, auto
 
 from top_tier.general.exceptions import JointOutOfBoundsException
-
-from teleop.top_tier.hardware.msg_types import DeviceCmd, DeviceState
+from top_tier.hardware.msg_types import DeviceCmd, DeviceState
 
 
 class JointType(IntEnum):

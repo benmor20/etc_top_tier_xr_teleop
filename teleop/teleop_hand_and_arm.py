@@ -5,7 +5,7 @@ import threading
 import logging_mp
 import numpy as np
 
-from top_tier.hardware.robot import RobotFSMState, ControlMode
+from top_tier.hardware.robot import RobotFSMState
 from top_tier.general.constants import WALKING_SPEED_FORWARD, WALKING_SPEED_STRAFE, WALKING_SPEED_THETA
 from top_tier.general.motion_data import MOTION_DATA_DICT
 from top_tier.general.xr_controllers import XRControllers, XRControllerButton, XRControllerFloat, XRControllerMatrix
