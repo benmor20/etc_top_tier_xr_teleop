@@ -1,5 +1,10 @@
 from enum import Enum, auto
+from typing import Callable
 
+from unitree_sdk2py.idl import unitree_hg_msg_dds__HandState_, unitree_hg_msg_dds__HandCmd_
+from unitree_sdk2py.idl.unitree_hg.msg.dds_ import HandState_, HandCmd_
+
+from hardware.hardware_device import HardwareDevice, DEVICE_T
 from hardware.joint import JointType, Joint
 
 
@@ -59,7 +64,7 @@ class HandType(Enum):
         return _construct_dex3_joints(left_hand)
 
 
-class Hand:
+class Hand(HardwareDevice[tuple[HandType, bool], HandState_, HandCmd_]):
     """
     Base class for all types of hands
 
@@ -75,7 +80,46 @@ class Hand:
             hand_type: the type of hand to create
             left_hand: whether this hand is on the robot's left or right
         """
-        self._hand_type = hand_type
-        self._is_left_hand = left_hand
+        side_str = "left" if left_hand else "right"
+        state_name = f"rt/dex3/{side_str}/state"
+        cmd_name = f"rt/dex3/{side_str}/cmd"
+        super().__init__((hand_type, left_hand), state_name, cmd_name)
 
-        # TODO Hand class
+    # ABSTRACT METHODS ----------------------------------------------------------------------------
+
+    @property
+    def _state_type(self) -> type[HandState_]:
+        return HandState_
+
+    @property
+    def _cmd_type(self) -> type[HandCmd_]:
+        return HandCmd_
+
+    @property
+    def _state_default_factory(self) -> Callable[[], HandState_]:
+        return unitree_hg_msg_dds__HandState_
+
+    @property
+    def _cmd_default_factory(self) -> Callable[[], HandCmd_]:
+        return unitree_hg_msg_dds__HandCmd_
+
+    def _get_joint_map(self, device_type: tuple[HandType, bool]) -> dict[JointType, Joint]:
+        return device_type[0].get_joint_map(device_type[1])
+
+    # MISC PROPERTIES -----------------------------------------------------------------------------
+
+    @property
+    def hand_type(self) -> HandType:
+        """
+        Returns:
+            what type of hand this instance represents
+        """
+        return self.device_type[0]
+
+    @property
+    def is_left_hand(self) -> bool:
+        """
+        Returns:
+            True of this hand is a left hand, False otherwise
+        """
+        return self.device_type[1]

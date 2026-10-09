@@ -4,7 +4,7 @@ from top_tier.hardware.joint import JointType
 # maps button presses to list of waypoints representing a motion
 MOTION_DATA_DICT = {
     # Quickdraw
-    XRControllerButton.X: [
+    XRControllerButton.A: [
         {
             JointType.RightShoulderPitch: 0.56371,
             JointType.RightShoulderRoll: -0.1229,
@@ -37,9 +37,21 @@ MOTION_DATA_DICT = {
         }
     ],
 
-    XRControllerButton.Y: [
+    XRControllerButton.B: [
         {
             JointType.WaistYaw: 0.
+        }
+    ],
+
+    XRControllerButton.X: [
+        {
+            JointType.LeftThumbYaw: 0.,
+        }
+    ],
+
+    XRControllerButton.Y: [
+        {
+            JointType.LeftThumbYaw: 1.047,
         }
     ],
 }
