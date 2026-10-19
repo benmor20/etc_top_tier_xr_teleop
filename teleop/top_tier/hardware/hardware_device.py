@@ -226,6 +226,8 @@ class HardwareDevice(ABC, Generic[DEVICE_T, STATE_T, CMD_T]):
         try:
             self._position_to_hold = self.get_controlled_joint_positions()
             self.set_target_position({})
+            self._waypoint_joints = set()
+            self._current_motion_gen = None
         except:
             self._active_control = False
             raise
@@ -237,6 +239,8 @@ class HardwareDevice(ABC, Generic[DEVICE_T, STATE_T, CMD_T]):
         Should be called if the program is exited for any reason
         """
         self._update_event.stop()
+        if self.is_active:
+            self.deactivate_control()
 
     def deactivate_control(self) -> None:
         """
@@ -244,9 +248,9 @@ class HardwareDevice(ABC, Generic[DEVICE_T, STATE_T, CMD_T]):
         """
         with self._cmd_lock:
             self._active_control = False
+            self._on_waypoint_done(False)
             self._current_motion_gen = None
             self._waypoint_callback = None
-            self._waypoint_cancelled_callback = None
             self._waypoint_joints = set()
             self._target_pose = {}
             self._target_kff = {}

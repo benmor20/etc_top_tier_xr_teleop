@@ -7,6 +7,7 @@ from unitree_sdk2py.idl import unitree_hg_msg_dds__LowCmd_, unitree_hg_msg_dds__
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_, LowCmd_
 from unitree_sdk2py.utils.crc import CRC
 
+from top_tier.hardware.msg_types import LocoClient
 from top_tier.hardware.extensions import R1LocoClient, G1LocoClient
 from top_tier.hardware.joint import Joint, JointType
 from top_tier.general.constants import CONTROL_DT, G1_ARM_SDK_WEIGHT_MOTOR_IDX
@@ -213,7 +214,7 @@ class Robot(HardwareDevice[RobotType, LowState_, LowCmd_]):
         return self._robot_fsm_state
 
     @property
-    def loco_client(self) -> G1LocoClient | R1LocoClient:
+    def loco_client(self) -> LocoClient:
         """
         Returns:
             the LocoClient for this robot
@@ -238,26 +239,13 @@ class Robot(HardwareDevice[RobotType, LowState_, LowCmd_]):
 
     # INITIALIZATION ------------------------------------------------------------------------------
 
+    @override
     def initialize(self) -> None:
         """
         Initialize this robot
         """
         self._loco_client.Init()
         super().initialize()
-
-    @override
-    def activate_control(self) -> None:
-        """
-        Change the control mode for the upper half of the body
-
-        Note that this function will block if switching from low to high level control
-        """
-        super().activate_control()
-        with self._cmd_lock:
-            self._reset_cmd()
-            # can go straight to 100 if we're moving the motors to their current position
-            self._fill_cmd(self.get_upper_body_joint_positions())
-            self._send_command()
 
     def set_fsm_state(self, target_state: RobotFSMState) -> bool:
         """
@@ -284,6 +272,7 @@ class Robot(HardwareDevice[RobotType, LowState_, LowCmd_]):
         self.loco_client.SetFsmId(RobotFSMState.Damping.value)
         super().shutdown()
 
+    @override
     def shutdown(self, enter_damping: bool = True) -> None:
         """
         Shut down the robot
@@ -292,8 +281,6 @@ class Robot(HardwareDevice[RobotType, LowState_, LowCmd_]):
             enter_damping: if True, will move the robot to damping mode
         """
         super().shutdown()
-        if self.is_active:
-            self.deactivate_control()
         if enter_damping:
             self.loco_client.SetFsmId(RobotFSMState.Damping.value)
 
