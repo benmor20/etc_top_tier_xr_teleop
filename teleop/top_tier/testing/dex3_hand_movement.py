@@ -53,7 +53,7 @@ def get_motor_mode(id: int, status: int = 0x01, timeout: int = 0):
 
 def main():
     ChannelFactoryInitialize(0, "enp0s31f6")
-    pub = ChannelPublisher("rt/dex3/left/cmd", HandCmd_)
+    pub = ChannelPublisher("rt/dex3/right/cmd", HandCmd_)
     pub.Init()
 
     cmd = unitree_hg_msg_dds__HandCmd_()
@@ -87,6 +87,8 @@ def main():
         run = False
     commands = {"e": exit, "o": open, "c": close}
     def on_press(key: KeyCode):
+        if not isinstance(key, KeyCode):
+            return
         for code, func in commands.items():
             if key.char == code:
                 func()

@@ -5,9 +5,10 @@ import threading
 import logging_mp
 import numpy as np
 
+from top_tier.hardware.hand import Hand, HandType
 from top_tier.hardware.robot import RobotFSMState
 from top_tier.general.constants import WALKING_SPEED_FORWARD, WALKING_SPEED_STRAFE, WALKING_SPEED_THETA
-from top_tier.general.motion_data import MOTION_DATA_DICT
+from top_tier.general.motion_data import MOTION_DATA_DICT, HAND_OPEN, HAND_CLOSED, interpolate_poses
 from top_tier.general.xr_controllers import XRControllers, XRControllerButton, XRControllerFloat, XRControllerMatrix
 from top_tier.hardware.joint import JointType
 from top_tier.hardware.robot import Robot, RobotType
@@ -293,9 +294,15 @@ if __name__ == '__main__':
         controller_data = XRControllers(tv_wrapper)
         robot = Robot(robot_type)
         robot.initialize()
+        left_hand = Hand(HandType.Dex3, True)
+        left_hand.initialize()
+        right_hand = Hand(HandType.Dex3, False)
+        right_hand.initialize()
         time.sleep(0.5)
         robot.set_max_tracking_velocity(50.)
         robot.set_max_waypoint_velocity(3.)
+        left_hand.set_max_tracking_velocity(100.)
+        right_hand.set_max_tracking_velocity(100.)
 
         logger_mp.info("----------------------------------------------------------------")
         logger_mp.info("🟢  Press [r] to start syncing the robot with your movements.")
@@ -313,6 +320,8 @@ if __name__ == '__main__':
         logger_mp.info("---------------------🚀start Tracking🚀-------------------------")
 
         robot.activate_control()
+        left_hand.activate_control()
+        right_hand.activate_control()
         head_img = None
         left_wrist_img = None
         right_wrist_img = None
@@ -374,6 +383,20 @@ if __name__ == '__main__':
             pose = convert_to_joint_map(sol_q, sol_tauff, robot.device_type)
             robot.set_target_position(pose)
 
+            # control hands
+            left_target = {}
+            right_target = {}
+            for button, close_pose in HAND_CLOSED.items():
+                open_pose = HAND_OPEN[button]
+                percent_closed = controller_data.get_float(button)
+                target_pose = interpolate_poses((close_pose, percent_closed), open_pose)
+                if button.is_left:
+                    left_target.update(target_pose)
+                else:
+                    right_target.update(target_pose)
+            left_hand.set_target_position(left_target)
+            right_hand.set_target_position(right_target)
+
             current_time = time.time()
             time_elapsed = current_time - start_time
             sleep_time = max(0, loop_time - time_elapsed)
@@ -388,6 +411,8 @@ if __name__ == '__main__':
     finally:
         try:
             robot.shutdown(False)
+            left_hand.shutdown()
+            right_hand.shutdown()
         except Exception as e:
             logger_mp.error(f"Failed to shutdown robot: {e}")
         

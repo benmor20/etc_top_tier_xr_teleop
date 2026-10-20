@@ -1,11 +1,11 @@
 import re
-from enum import IntEnum, auto
+from enum import Enum, auto
 
 from top_tier.general.exceptions import JointOutOfBoundsException
 from top_tier.hardware.msg_types import DeviceCmd, DeviceState
 
 
-class JointType(IntEnum):
+class JointType(Enum):
     # Head
     HeadPitch = auto()
     HeadYaw = auto()
