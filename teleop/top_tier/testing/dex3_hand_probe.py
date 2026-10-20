@@ -9,7 +9,7 @@ from unitree_sdk2py.idl.unitree_hg.msg.dds_ import HandState_
 
 def main():
     ChannelFactoryInitialize(0, "enp0s31f6")
-    sub = ChannelSubscriber("rt/dex3/left/state", HandState_)
+    sub = ChannelSubscriber("rt/dex3/right/state", HandState_)
     sub.Init()
     pos = np.zeros((7,))
     run = True
@@ -21,6 +21,8 @@ def main():
         print(pos)
     commands = {"e": exit, "p": log}
     def on_press(key: KeyCode):
+        if not isinstance(key, KeyCode):
+            return
         for code, func in commands.items():
             if key.char == code:
                 func()

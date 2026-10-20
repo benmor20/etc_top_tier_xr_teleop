@@ -20,6 +20,20 @@ class XRControllerButton(Enum):
     RightJoystick = auto()
     IsValid = auto()
 
+    @property
+    def is_left(self) -> bool:
+        """
+        Returns:
+            True if this button is on the left controller, False otherwise
+        """
+        return self in (
+            XRControllerButton.X,
+            XRControllerButton.Y,
+            XRControllerButton.LeftSqueeze,
+            XRControllerButton.LeftTrigger,
+            XRControllerButton.LeftJoystick,
+        )
+
 
 class XRControllerFloat(Enum):
     LeftTrigger = auto()
@@ -32,6 +46,20 @@ class XRControllerFloat(Enum):
     RightSqueeze = auto()
     RightJoystickX = auto()
     RightJoystickY = auto()
+
+    @property
+    def is_left(self) -> bool:
+        """
+        Returns:
+            True if this trigger is on the left controller, False otherwise
+        """
+        return self in (
+            XRControllerFloat.LeftTrigger,
+            XRControllerFloat.LeftTriggerScaled,
+            XRControllerFloat.LeftSqueeze,
+            XRControllerFloat.LeftJoystickX,
+            XRControllerFloat.LeftJoystickY,
+        )
 
 
 class XRControllerMatrix(Enum):
