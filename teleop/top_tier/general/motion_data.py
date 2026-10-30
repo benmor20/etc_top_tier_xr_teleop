@@ -59,24 +59,24 @@ MOTION_DATA_DICT = {
 
 HAND_OPEN = {
     XRControllerFloat.LeftTrigger: {
+        JointType.LeftIndexFingerJoint1: 0.,
+        JointType.LeftIndexFingerJoint2: 0.,
+    },
+    XRControllerFloat.LeftSqueeze: {
         JointType.LeftThumbYaw: 0.,
         JointType.LeftThumbJoint1: -0.7,
         JointType.LeftThumbJoint2: 0.,
-    },
-    XRControllerFloat.LeftSqueeze: {
-        JointType.LeftIndexFingerJoint1: 0.,
-        JointType.LeftIndexFingerJoint2: 0.,
         JointType.LeftMiddleFingerJoint1: 0.,
         JointType.LeftMiddleFingerJoint2: 0.,
     },
     XRControllerFloat.RightTrigger: {
+        JointType.RightIndexFingerJoint1: 0.,
+        JointType.RightIndexFingerJoint2: 0.,
+    },
+    XRControllerFloat.RightSqueeze: {
         JointType.RightThumbYaw: 0.,
         JointType.RightThumbJoint1: 0.7,
         JointType.RightThumbJoint2: 0.,
-    },
-    XRControllerFloat.RightSqueeze: {
-        JointType.RightIndexFingerJoint1: 0.,
-        JointType.RightIndexFingerJoint2: 0.,
         JointType.RightMiddleFingerJoint1: 0.,
         JointType.RightMiddleFingerJoint2: 0.,
     }
@@ -85,24 +85,24 @@ HAND_OPEN = {
 
 HAND_CLOSED = {
     XRControllerFloat.LeftTrigger: {
+        JointType.LeftIndexFingerJoint1: -1.57,
+        JointType.LeftIndexFingerJoint2: -1.74,
+    },
+    XRControllerFloat.LeftSqueeze: {
         JointType.LeftThumbYaw: 0.,
         JointType.LeftThumbJoint1: 0.6,
         JointType.LeftThumbJoint2: 1.74,
-    },
-    XRControllerFloat.LeftSqueeze: {
-        JointType.LeftIndexFingerJoint1: -1.57,
-        JointType.LeftIndexFingerJoint2: -1.74,
         JointType.LeftMiddleFingerJoint1: -1.57,
         JointType.LeftMiddleFingerJoint2: -1.74,
     },
     XRControllerFloat.RightTrigger: {
+        JointType.RightIndexFingerJoint1: 1.57,
+        JointType.RightIndexFingerJoint2: 1.74,
+    },
+    XRControllerFloat.RightSqueeze: {
         JointType.RightThumbYaw: 0.,
         JointType.RightThumbJoint1: -0.6,
         JointType.RightThumbJoint2: -1.74,
-    },
-    XRControllerFloat.RightSqueeze: {
-        JointType.RightIndexFingerJoint1: 1.57,
-        JointType.RightIndexFingerJoint2: 1.74,
         JointType.RightMiddleFingerJoint1: 1.57,
         JointType.RightMiddleFingerJoint2: 1.74,
     }

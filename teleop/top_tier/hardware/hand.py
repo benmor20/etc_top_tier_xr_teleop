@@ -23,18 +23,18 @@ def _construct_dex3_joints(left_hand: bool = True) -> dict[JointType, Joint]:
             JointType.LeftThumbYaw,
             JointType.LeftThumbJoint1,
             JointType.LeftThumbJoint2,
-            JointType.LeftIndexFingerJoint1,
-            JointType.LeftIndexFingerJoint2,
             JointType.LeftMiddleFingerJoint1,
             JointType.LeftMiddleFingerJoint2,
+            JointType.LeftIndexFingerJoint1,
+            JointType.LeftIndexFingerJoint2,
         ] if left_hand else [
             JointType.RightThumbYaw,
             JointType.RightThumbJoint1,
             JointType.RightThumbJoint2,
-            JointType.RightIndexFingerJoint1,
-            JointType.RightIndexFingerJoint2,
             JointType.RightMiddleFingerJoint1,
             JointType.RightMiddleFingerJoint2,
+            JointType.RightIndexFingerJoint1,
+            JointType.RightIndexFingerJoint2,
         ])
     lower_limits = [-1.047, -1.047,  0.,   -1.5707, -1.745, -1.5707, -1.745]
     upper_limits = [ 1.047,  0.6108, 1.745, 0.,      0.,     0.,      0.]
