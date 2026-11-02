@@ -42,7 +42,7 @@ def _construct_dex3_joints(left_hand: bool = True) -> dict[JointType, Joint]:
         upper_limits, lower_limits = [-lo for lo in lower_limits], [-up for up in upper_limits]
     kps = [1.5] * 7
     kds = [0.2] * 7
-    return { jt: Joint(jt, idx, lo, up, kp, kd, ModeMethod.IdStatusTimeout) for idx, (jt, lo, up, kp, kd) in enumerate(zip(joint_order, lower_limits, upper_limits, kps, kds)) }
+    return { jt: Joint(jt, idx, lo, up, kp, kd, mode_method=ModeMethod.IdStatusTimeout, clip_target_pos=True) for idx, (jt, lo, up, kp, kd) in enumerate(zip(joint_order, lower_limits, upper_limits, kps, kds)) }
 
 
 # Currently only supports Dex3, but allows for us to expand to different hands easily

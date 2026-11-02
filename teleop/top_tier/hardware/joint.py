@@ -224,7 +224,9 @@ class Joint:
     A class to represent different joints on the robot, ensuring safe use of them
     """
 
-    def __init__(self, joint_type: JointType, joint_id: int, lower_limit: float, upper_limit: float, Kp: float, Kd: float, mode_method: ModeMethod = ModeMethod.Enabled):
+    def __init__(self, joint_type: JointType, joint_id: int, lower_limit: float, upper_limit: float,
+                 Kp: float, Kd: float, mode_method: ModeMethod = ModeMethod.Enabled,
+                 clip_target_pos: bool = False):
         """
         Creates a new joint
 
@@ -236,6 +238,8 @@ class Joint:
             Kp: the proportional coefficient of the PID control for the joint
             Kd: the derivative component of the PID control for the joint
             mode_method: how to determine the mode to send as part of the motor command
+            clip_target_pos: if True, will clip any positions to within acceptable bounds. Otherwise, will error if told
+                to move out of bounds
         """
         self._joint_type = joint_type
         self._joint_id = joint_id
@@ -245,6 +249,7 @@ class Joint:
         self._Kd = Kd
         self._Kff = 0.  # referred to as tau in the commands, really just the feedforward component of PID
         self._mode_method = mode_method
+        self._clip_target_pos = clip_target_pos
 
         self._q = 0.
         self._dq = 0.
@@ -362,6 +367,18 @@ class Joint:
         if not self.is_pos_in_range(pos):
             raise JointOutOfBoundsException(f"Joint {self.joint_type} can only move between {self.lower_limit} and {self.upper_limit}, but was told to go to {pos}")
 
+    def put_pos_in_range(self, pos: float) -> float:
+        """
+        Clip the pos so that it is within the acceptable range of this joint
+
+        Args:
+            pos: the position (radians) to clip. May be within or outside the range
+
+        Returns:
+            pos if pos is within the acceptable bounds, otherwise the closest bound to pos
+        """
+        return np.clip(pos, self.lower_limit, self.upper_limit)
+
     def update_state(self, state: DeviceState) -> None:
         """
         Update the internal state of this joint
@@ -385,9 +402,13 @@ class Joint:
             kff: the PID feedforward value for this joint at its current position
 
         Raises:
-            JointOutOfBoundsException: if target_pos is outside this joint's range
+            JointOutOfBoundsException: if target_pos is outside this joint's range and this joint is not set up to clip
+                target positions
         """
-        self.assert_pos_in_range(target_pos)
+        if self._clip_target_pos:
+            target_pos = self.put_pos_in_range(target_pos)
+        else:
+            self.assert_pos_in_range(target_pos)
 
         cmd.motor_cmd[self.joint_id].mode = self._mode_method.get_mode(True, self._joint_id)
         cmd.motor_cmd[self.joint_id].kp = self.Kp
@@ -404,7 +425,7 @@ class Joint:
             cmd: the low-level command to update
             kff: the PID feedforward value for this joint (for if it should try to fight gravity)
         """
-        cmd.motor_cmd[self.joint_id].mode = 1
+        cmd.motor_cmd[self.joint_id].mode = self._mode_method.get_mode(True, self._joint_id)
         cmd.motor_cmd[self.joint_id].kp = 0.
         cmd.motor_cmd[self.joint_id].kd = self.Kd
         cmd.motor_cmd[self.joint_id].q = 0.
