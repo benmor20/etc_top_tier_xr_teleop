@@ -3,6 +3,7 @@ from typing import Callable
 
 import numpy as np
 from typing_extensions import override
+from unitree_sdk2py.g1.audio.g1_audio_client import AudioClient
 from unitree_sdk2py.idl import unitree_hg_msg_dds__LowCmd_, unitree_hg_msg_dds__LowState_
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_, LowCmd_
 from unitree_sdk2py.utils.crc import CRC
@@ -11,7 +12,7 @@ from top_tier.hardware.msg_types import LocoClient
 from top_tier.hardware.extensions import R1LocoClient, G1LocoClient
 from top_tier.hardware.joint import Joint, JointType
 from top_tier.general.constants import CONTROL_DT, G1_ARM_SDK_WEIGHT_MOTOR_IDX
-from top_tier.general.exceptions import IllegalRobotStateException, UnknownRobotException
+from top_tier.general.exceptions import IllegalRobotTypeException, IllegalRobotStateException, UnknownRobotException
 from top_tier.hardware.hardware_device import HardwareDevice
 
 
@@ -155,6 +156,8 @@ class Robot(HardwareDevice[RobotType, LowState_, LowCmd_]):
 
         self._loco_client = G1LocoClient() if robot_type == RobotType.G1 else R1LocoClient()
         self._loco_client.SetTimeout(1.0)
+        self._audio_client = AudioClient() if robot_type == RobotType.G1 else None
+        if self._audio_client: self._audio_client.SetTimeout(1.0)
         self._robot_fsm_state = RobotFSMState.ZeroTorque
         self._crc = CRC()
 
@@ -221,6 +224,19 @@ class Robot(HardwareDevice[RobotType, LowState_, LowCmd_]):
         """
         return self._loco_client
 
+    @property
+    def audio_client(self) -> AudioClient:
+        """
+        Returns:
+            the AudioClient for this robot (if it exists)
+
+        Raises:
+            IllegalRobotTypeException: if this robot does not have an audio client
+        """
+        if self._audio_client is None:
+            raise IllegalRobotTypeException(f"{self.device_type} does not have an audio client")
+        return self._audio_client
+
     # JOINTS --------------------------------------------------------------------------------------
 
     def get_upper_body_joint_positions(self) -> dict[JointType, float]:
@@ -245,6 +261,7 @@ class Robot(HardwareDevice[RobotType, LowState_, LowCmd_]):
         Initialize this robot
         """
         self._loco_client.Init()
+        if self._audio_client: self._audio_client.Init()
         super().initialize()
 
     def set_fsm_state(self, target_state: RobotFSMState) -> bool:

@@ -12,6 +12,12 @@ class UnknownRobotException(RobotException):
     """
 
 
+class IllegalRobotTypeException(RobotException):
+    """
+    Raised if an operation is attmpted on a robot that does not support it
+    """
+
+
 class IllegalRobotStateException(RobotException):
     """
     For doing an operation when the robot is in a state that does not support it

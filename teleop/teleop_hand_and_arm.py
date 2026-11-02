@@ -294,6 +294,7 @@ if __name__ == '__main__':
         controller_data = XRControllers(tv_wrapper)
         robot = Robot(robot_type)
         robot.initialize()
+        robot.audio_client.LedControl(0, 0, 0)
         left_hand = Hand(HandType.Dex3, True)
         left_hand.initialize()
         right_hand = Hand(HandType.Dex3, False)
