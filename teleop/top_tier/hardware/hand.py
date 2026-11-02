@@ -5,7 +5,7 @@ from unitree_sdk2py.idl import unitree_hg_msg_dds__HandState_, unitree_hg_msg_dd
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import HandState_, HandCmd_
 
 from top_tier.hardware.hardware_device import HardwareDevice
-from top_tier.hardware.joint import JointType, Joint
+from top_tier.hardware.joint import JointType, ModeMethod, Joint
 
 
 def _construct_dex3_joints(left_hand: bool = True) -> dict[JointType, Joint]:
@@ -42,7 +42,7 @@ def _construct_dex3_joints(left_hand: bool = True) -> dict[JointType, Joint]:
         upper_limits, lower_limits = [-lo for lo in lower_limits], [-up for up in upper_limits]
     kps = [1.5] * 7
     kds = [0.2] * 7
-    return { jt: Joint(jt, idx, lo, up, kp, kd) for idx, (jt, lo, up, kp, kd) in enumerate(zip(joint_order, lower_limits, upper_limits, kps, kds)) }
+    return { jt: Joint(jt, idx, lo, up, kp, kd, ModeMethod.IdStatusTimeout) for idx, (jt, lo, up, kp, kd) in enumerate(zip(joint_order, lower_limits, upper_limits, kps, kds)) }
 
 
 # Currently only supports Dex3, but allows for us to expand to different hands easily

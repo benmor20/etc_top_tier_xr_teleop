@@ -1,6 +1,8 @@
 import re
 from enum import Enum, auto
 
+import numpy as np
+
 from top_tier.general.exceptions import JointOutOfBoundsException
 from top_tier.hardware.msg_types import DeviceCmd, DeviceState
 
@@ -183,12 +185,46 @@ class JointType(Enum):
         return JointType.from_string(unitree_joint.name)
 
 
+class ModeMethod(Enum):
+    """
+    Enum that determines how to fill in the "mode" parameter in a MotorCmd
+    """
+
+    # 1 if enabled, 0 if not
+    Enabled = auto()
+
+    # 8 bits. Bits 0-3 are the joint idx, bits 4-6 are the status, bit 7 is the timeout flag
+    IdStatusTimeout = auto()
+
+    def get_mode(self, enabled: bool, idx: int, status: int = 0x01, timeout: int = 0) -> int:
+        """
+        Determine the mode value for a motor command with this ModeMethod
+
+        Args:
+            enabled: whether the joint is enabled or not
+            idx: the joint index of this motor
+            status: no idea, but unitree has it at a constant 1
+            timeout: no idea, but unitree has it at a constant 0
+        """
+        if not enabled:
+            return 0
+        if self == ModeMethod.Enabled:
+            return 1
+
+        # See teleop.robot_control.robot_hand_unitree.Dex3_1_Controller._RIS_Mode._mode_to_uint8
+        mode = 0
+        mode |= (idx & 0x0F)
+        mode |= (status & 0x07) << 4
+        mode |= (timeout & 0x01) << 7
+        return mode
+
+
 class Joint:
     """
     A class to represent different joints on the robot, ensuring safe use of them
     """
 
-    def __init__(self, joint_type: JointType, joint_id: int, lower_limit: float, upper_limit: float, Kp: float, Kd: float):
+    def __init__(self, joint_type: JointType, joint_id: int, lower_limit: float, upper_limit: float, Kp: float, Kd: float, mode_method: ModeMethod = ModeMethod.Enabled):
         """
         Creates a new joint
 
@@ -199,6 +235,7 @@ class Joint:
             upper_limit: radians, the highest angle the joint can turn to
             Kp: the proportional coefficient of the PID control for the joint
             Kd: the derivative component of the PID control for the joint
+            mode_method: how to determine the mode to send as part of the motor command
         """
         self._joint_type = joint_type
         self._joint_id = joint_id
@@ -207,6 +244,7 @@ class Joint:
         self._Kp = Kp
         self._Kd = Kd
         self._Kff = 0.  # referred to as tau in the commands, really just the feedforward component of PID
+        self._mode_method = mode_method
 
         self._q = 0.
         self._dq = 0.
@@ -351,7 +389,7 @@ class Joint:
         """
         self.assert_pos_in_range(target_pos)
 
-        cmd.motor_cmd[self.joint_id].mode = 1
+        cmd.motor_cmd[self.joint_id].mode = self._mode_method.get_mode(True, self._joint_id)
         cmd.motor_cmd[self.joint_id].kp = self.Kp
         cmd.motor_cmd[self.joint_id].kd = self.Kd
         cmd.motor_cmd[self.joint_id].q = target_pos
