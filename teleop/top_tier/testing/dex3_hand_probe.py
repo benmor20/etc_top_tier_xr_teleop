@@ -1,3 +1,4 @@
+import sys
 import time
 
 import numpy as np
@@ -8,8 +9,18 @@ from unitree_sdk2py.idl.unitree_hg.msg.dds_ import HandState_
 
 
 def main():
+    if len(sys.argv) == 1:
+        hand = "left"
+    else:
+        hand = sys.argv[1].lower()
+        if hand == "l": hand = "left"
+        elif hand == "r": hand = "right"
+        if hand not in ("left", "right"):
+            raise ValueError("Usage: python dex3_hand_probe.py (left|right)")
+    print(f"{hand=}")
+
     ChannelFactoryInitialize(0, "enp0s31f6")
-    sub = ChannelSubscriber("rt/dex3/right/state", HandState_)
+    sub = ChannelSubscriber(f"rt/dex3/{hand}/state", HandState_)
     sub.Init()
     pos = np.zeros((7,))
     run = True

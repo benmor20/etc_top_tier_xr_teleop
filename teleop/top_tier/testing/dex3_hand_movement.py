@@ -1,3 +1,4 @@
+import sys
 import time
 from enum import Enum
 
@@ -52,8 +53,26 @@ def get_motor_mode(id: int, status: int = 0x01, timeout: int = 0):
 
 
 def main():
+    if len(sys.argv) == 1:
+        hand = "left"
+    else:
+        hand = sys.argv[1].lower()
+        if hand == "l":
+            hand = "left"
+        elif hand == "r":
+            hand = "right"
+        if hand not in ("left", "right"):
+            raise ValueError("Usage: python dex3_hand_probe.py (left|right)")
+    print(f"{hand=}")
+
+    if hand == "right":
+        global LOWER, UPPER, CLOSED, OPEN
+        LOWER, UPPER = -UPPER, -LOWER
+        CLOSED = -CLOSED
+        OPEN = -OPEN
+
     ChannelFactoryInitialize(0, "enp0s31f6")
-    pub = ChannelPublisher("rt/dex3/right/cmd", HandCmd_)
+    pub = ChannelPublisher(f"rt/dex3/{hand}/cmd", HandCmd_)
     pub.Init()
 
     cmd = unitree_hg_msg_dds__HandCmd_()
@@ -65,14 +84,6 @@ def main():
         cmd.motor_cmd[joint_idx].tau = 0.
         cmd.motor_cmd[joint_idx].kp = KP
         cmd.motor_cmd[joint_idx].kd = KD
-
-    sub = ChannelSubscriber("rt/dex3/left/state", HandState_)
-    sub.Init()
-    state = None
-    while state is None:
-        state = sub.Read()
-        time.sleep(1. / 250.)
-    current_pos = np.array([m.q for m in state.motor_state])
 
     run = True
     target = OPEN
@@ -94,6 +105,17 @@ def main():
                 func()
     listener = keyboard.Listener(on_press=on_press)
     listener.start()
+
+    sub = ChannelSubscriber(f"rt/dex3/{hand}/state", HandState_)
+    sub.Init()
+    state = None
+    while state is None and run:
+        state = sub.Read(0.1)
+        time.sleep(1. / 250.)
+    if not run:
+        return
+    current_pos = np.array([m.q for m in state.motor_state])
+    current_pos = np.clip(current_pos, LOWER, UPPER)
 
     while run:
         delta = target - current_pos
