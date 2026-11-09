@@ -321,11 +321,12 @@ class Robot(HardwareDevice[RobotType, LowState_, LowCmd_]):
 
     @override
     def _update(self) -> None:
-        fsm_id = self._loco_client.GetFsmId()[1]
-        try:
-            self._robot_fsm_state = RobotFSMState(fsm_id)
-        except ValueError:
-            self._robot_fsm_state = RobotFSMState.Unknown
+        code, fsm_id = self._loco_client.GetFsmId()
+        if code == 0:
+            try:
+                self._robot_fsm_state = RobotFSMState(fsm_id)
+            except ValueError:
+                self._robot_fsm_state = RobotFSMState.Unknown
 
         super()._update()
 
