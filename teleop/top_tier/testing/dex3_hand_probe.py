@@ -19,7 +19,7 @@ def main():
             raise ValueError("Usage: python dex3_hand_probe.py (left|right)")
     print(f"{hand=}")
 
-    ChannelFactoryInitialize(0, "enp0s31f6")
+    ChannelFactoryInitialize(0, "wlp0s20f3")
     sub = ChannelSubscriber(f"rt/dex3/{hand}/state", HandState_)
     sub.Init()
     pos = np.zeros((7,))

@@ -40,10 +40,6 @@ KP = 1.5
 KD = 0.2
 
 
-CLOSED = np.concatenate(([0.], UPPER[1:3], LOWER[3:]))
-OPEN = np.concatenate(([0.], LOWER[1:3], UPPER[3:]))
-
-
 def get_motor_mode(id: int, status: int = 0x01, timeout: int = 0):
     motor_mode = 0
     motor_mode |= id & 0x0F
@@ -66,12 +62,23 @@ def main():
     print(f"{hand=}")
 
     if hand == "right":
-        global LOWER, UPPER, CLOSED, OPEN
-        LOWER, UPPER = -UPPER, -LOWER
-        CLOSED = -CLOSED
-        OPEN = -OPEN
+        lower, upper = -UPPER, -LOWER
+    else:
+        lower, upper = LOWER, UPPER
 
-    ChannelFactoryInitialize(0, "enp0s31f6")
+    closed = np.concatenate(([0.], upper[1:3], lower[3:]))
+    opened = np.concatenate(([0.], lower[1:3], upper[3:]))
+    if hand == "right":
+        closed, opened = opened, closed  # maybe this is backwards for left too idk
+    gripped = np.concatenate(([0.], closed[1:5], opened[5:]))
+
+    normal_kff = np.zeros(gripped.shape)
+    fire_kff = normal_kff.copy()
+    fire_kff_idxs = [5, 6]
+    fire_kff[fire_kff_idxs] = 0.1
+    kff = normal_kff
+
+    ChannelFactoryInitialize(0, "wlp0s20f3")
     pub = ChannelPublisher(f"rt/dex3/{hand}/cmd", HandCmd_)
     pub.Init()
 
@@ -86,17 +93,33 @@ def main():
         cmd.motor_cmd[joint_idx].kd = KD
 
     run = True
-    target = OPEN
+    target = opened
     def open():
-        nonlocal target
-        target = OPEN
+        nonlocal target, kff
+        target = opened
+        kff = normal_kff
     def close():
-        nonlocal target
-        target = CLOSED
+        nonlocal target, kff
+        target = closed
+        kff = normal_kff
+    def grip():
+        nonlocal target, kff
+        target = gripped
+        kff = normal_kff
+    def fire():
+        nonlocal target, kff
+        target = closed
+        kff = fire_kff
+    def increase():
+        nonlocal fire_kff
+        fire_kff[fire_kff_idxs] *= 2.
+    def decrease():
+        nonlocal fire_kff
+        fire_kff[fire_kff_idxs] /= 2.
     def exit():
         nonlocal run
         run = False
-    commands = {"e": exit, "o": open, "c": close}
+    commands = {"e": exit, "o": open, "c": close, "g": grip, "f": fire, "r": increase, "v": decrease}
     def on_press(key: KeyCode):
         if not isinstance(key, KeyCode):
             return
@@ -115,18 +138,19 @@ def main():
     if not run:
         return
     current_pos = np.array([m.q for m in state.motor_state])
-    current_pos = np.clip(current_pos, LOWER, UPPER)
+    current_pos = np.clip(current_pos, lower, upper)
 
     while run:
         delta = target - current_pos
         max_dist = np.max(np.abs(delta))
         scale = 0. if np.isclose(max_dist, 0.) else min(30. / 250. / max_dist, 1.)
         clipped = current_pos + delta * scale
-        assert np.all(clipped >= LOWER), f"{clipped}, {LOWER}"
-        assert np.all(clipped <= UPPER), f"{clipped}, {UPPER}"
+        assert np.all(clipped >= lower), f"{clipped}, {lower}"
+        assert np.all(clipped <= upper), f"{clipped}, {upper}"
         for joint_type in JointType:
             joint_idx = joint_type.value
             cmd.motor_cmd[joint_idx].q = clipped[joint_idx]
+            cmd.motor_cmd[joint_idx].tau = kff[joint_idx]
         # print(target, scale, clipped)
         pub.Write(cmd)
         current_pos = clipped
