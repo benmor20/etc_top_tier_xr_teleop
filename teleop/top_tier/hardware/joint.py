@@ -226,7 +226,7 @@ class Joint:
 
     def __init__(self, joint_type: JointType, joint_id: int, lower_limit: float, upper_limit: float,
                  Kp: float, Kd: float, mode_method: ModeMethod = ModeMethod.Enabled,
-                 clip_target_pos: bool = False):
+                 clip_target_pos: bool = True):
         """
         Creates a new joint
 
