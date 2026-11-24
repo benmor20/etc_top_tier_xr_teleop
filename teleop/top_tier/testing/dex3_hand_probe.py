@@ -7,7 +7,6 @@ from pynput.keyboard import KeyCode
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import HandState_
 
-
 def main():
     if len(sys.argv) == 1:
         hand = "left"
@@ -43,6 +42,7 @@ def main():
     while run:
         time.sleep(1. / 250.)
         msg = sub.Read(0.1)
+
         if msg is None:
             continue
         pos = np.array([m.q for m in msg.motor_state])

@@ -50,7 +50,7 @@ def get_motor_mode(id: int, status: int = 0x01, timeout: int = 0):
 
 def main():
     if len(sys.argv) == 1:
-        hand = "left"
+        hand = "right"
     else:
         hand = sys.argv[1].lower()
         if hand == "l":
@@ -78,7 +78,7 @@ def main():
     fire_kff[fire_kff_idxs] = 0.1
     kff = normal_kff
 
-    ChannelFactoryInitialize(0, "wlp0s20f3")
+    ChannelFactoryInitialize(0, "enp0s31f6")
     pub = ChannelPublisher(f"rt/dex3/{hand}/cmd", HandCmd_)
     pub.Init()
 
